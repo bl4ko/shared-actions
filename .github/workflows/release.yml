@@ -1,4 +1,6 @@
 name: Create Release 🚀
+permissions:
+  contents: read
 on:
   push:
     branches: [main]
@@ -8,8 +10,6 @@ on:
       SVC_TOKEN: # Token for service account
         required: true
 jobs:
-  permissions:
-    contents: read
   release:
     runs-on: ubuntu-latest
     steps:
