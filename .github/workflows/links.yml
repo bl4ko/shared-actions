@@ -1,5 +1,6 @@
 name: Check for broken links
-permissions: {}
+permissions:
+  contents: read
 on:
   workflow_call:
     secrets:
@@ -10,8 +11,6 @@ on:
     - cron: "00 18 * * *"
 
 jobs:
-  permissions:
-    contents: read
   linkChecker:
     runs-on: ubuntu-latest
     steps:

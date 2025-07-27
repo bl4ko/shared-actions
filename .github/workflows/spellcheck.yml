@@ -1,9 +1,9 @@
 name: Spellcheck Action
+permissions:
+  contents: read
 on:
   workflow_call:
 jobs:
-  permissions:
-    contents: read
   spellcheck:
     runs-on: ubuntu-latest
     steps:
