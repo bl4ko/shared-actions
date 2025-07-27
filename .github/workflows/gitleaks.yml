@@ -1,9 +1,9 @@
 name: gitleaks
-permissions:
-  contents: read
 on:
   workflow_call:
 jobs:
+  permissions:
+    contents: read
   scan:
     name: gitleaks
     runs-on: ubuntu-latest
