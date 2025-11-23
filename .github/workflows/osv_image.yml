@@ -2,8 +2,11 @@ name: Scan container image with OSV-Scanner
 on:
   workflow_call:
     inputs:
-      dockerfile:
-        description: 'Path to the Dockerfile. The image will be built and then scanned. The image name is derived from the directory containing the Dockerfile. If the Dockerfile is in the root, the repository name is used.'
+      containerfile:
+        description: |
+          Path to the Containerfile. The image will be built and then scanned.
+          The image name is derived from the directory containing the Containerfile.
+          If the Containerfile is in the root, the repository name is used.
         required: true
         type: string
       image-tag:
@@ -31,8 +34,8 @@ jobs:
         id: paths
         run: |
           set -e
-          DOCKERFILE_PATH="${{ inputs.dockerfile }}"
-          CONTEXT_DIR=$(dirname "$DOCKERFILE_PATH")
+          CONTAINERFILE_PATH="${{ inputs.containerfile }}"
+          CONTEXT_DIR=$(dirname "$CONTAINERFILE_PATH")
           if [ "$CONTEXT_DIR" = "." ]; then
             IMAGE_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2)
           else
@@ -49,7 +52,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ${{ steps.paths.outputs.context_dir }}
-          file: ${{ inputs.dockerfile }}
+          file: ${{ inputs.containerfile }}
           tags: ${{ steps.paths.outputs.image_name }}:${{ inputs.image-tag }}
           push: false
           load: true
