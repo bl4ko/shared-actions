@@ -35,15 +35,6 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Cache Docker layers
-      uses: actions/cache@v4
-      with:
-        path: /tmp/.buildx-cache
-        # Invalidate the cache if the Dockerfile changes
-        key: ${{ runner.os }}-buildx-${{ hashFiles(inputs.file) }}
-        restore-keys: |
-          ${{ runner.os }}-buildx-
-
     - name: Log in to registries (Default or Custom)
       if: ${{ inputs.push == 'true' }}
       shell: bash
@@ -80,6 +71,7 @@ runs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
+      # experimental cache: https://docs.docker.com/build/ci/github-actions/cache/#cache-backend-api
     - name: Build and Push Docker Image
       uses: docker/build-push-action@v5
       with:
@@ -88,12 +80,6 @@ runs:
         tags: ${{ inputs.tags }}
         push: ${{ inputs.push }}
         load: ${{ inputs.load }}
-        # Use local caching for Docker layers
-        cache-from: type=local,src=/tmp/.buildx-cache
-        cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-
-    - name: Move new cache to primary location
-      run: |
-        rm -rf /tmp/.buildx-cache
-        mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-      shell: bash
+        # Cache build steps
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
