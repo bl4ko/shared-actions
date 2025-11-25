@@ -26,6 +26,11 @@ inputs:
     type: boolean
     required: false
     default: false
+  registries:
+    description: 'JSON list of registries. If empty, defaults to GHCR.io.'
+    required: false
+    type: string
+    default: ''
 
 runs:
   using: "composite"
@@ -38,6 +43,39 @@ runs:
         key: ${{ runner.os }}-buildx-${{ hashFiles(inputs.file) }}
         restore-keys: |
           ${{ runner.os }}-buildx-
+
+    - name: Log in to registries (Default or Custom)
+      if: ${{ inputs.push == 'true' }}
+      shell: bash
+      env:
+        # Map inputs and context to environment variables
+        INPUT_REGISTRIES: ${{ inputs.registries }}
+        DEFAULT_REGISTRY: ghcr.io
+        DEFAULT_USER: ${{ github.actor }}
+        DEFAULT_PASS: ${{ github.token }}
+      run: |
+        # 1. Check if the user provided custom registries
+        if [[ -n "$INPUT_REGISTRIES" ]] && [[ "$INPUT_REGISTRIES" != "[]" ]]; then
+          echo "Custom registries detected. Parsing JSON input..."
+
+          echo "$INPUT_REGISTRIES" | jq -c '.[]' | while read -r item; do
+            REGISTRY=$(echo "$item" | jq -r '.registry')
+            USERNAME=$(echo "$item" | jq -r '.username')
+            PASSWORD=$(echo "$item" | jq -r '.password')
+
+            echo "Logging into $REGISTRY as $USERNAME..."
+            echo "::add-mask::$PASSWORD"
+            echo "$PASSWORD" | docker login "$REGISTRY" -u "$USERNAME" --password-stdin
+          done
+
+        # 2. If input is empty, use the requested Defaults
+        else
+          echo "No custom registries provided. Defaulting to ghcr.io..."
+
+          echo "Logging into $DEFAULT_REGISTRY as $DEFAULT_USER..."
+          echo "::add-mask::$DEFAULT_PASS"
+          echo "$DEFAULT_PASS" | docker login "$DEFAULT_REGISTRY" -u "$DEFAULT_USER" --password-stdin
+        fi
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
