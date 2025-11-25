@@ -6,12 +6,12 @@ inputs:
     description: 'Build context path (default: .)'
     required: false
     type: string
-    default: '.'
+    default: .
   file:
-    description: 'Path to the Dockerfile'
+    description: Containerfile name (e.g. Dockerfile,Containerfile,...)
     required: false
     type: string
-    default: './Dockerfile'
+    default: Dockerfile
   tags:
     description: Comma-separated list of tags for the image (e.g., my-image:latest,my-image:v1)
     type: string
@@ -46,7 +46,7 @@ runs:
       uses: docker/build-push-action@v5
       with:
         context: ${{ inputs.context }}
-        file: ${{ inputs.file }}
+        file: ${{inputs.context }}/${{ inputs.file }}
         tags: ${{ inputs.tags }}
         push: ${{ inputs.push }}
         load: ${{ inputs.load }}
