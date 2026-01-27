@@ -21,13 +21,17 @@ on:
         required: false
         type: bool
         default: false
+      runs-on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
 
 permissions:
   contents: read
   packages: write
 jobs:
   build-and-scan:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs-on }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6

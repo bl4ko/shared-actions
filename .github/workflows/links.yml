@@ -3,6 +3,11 @@ permissions:
   contents: read
 on:
   workflow_call:
+    inputs:
+      runs-on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
     secrets:
       SVC_TOKEN: # Token for service account (we want PRs to be created under a service account)
         required: true
@@ -12,7 +17,7 @@ on:
 
 jobs:
   linkChecker:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runs-on || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
       - name: Link Checker
