@@ -11,6 +11,8 @@ on:
 jobs:
   spellcheck:
     runs-on: ${{ inputs.runs-on }}
+    container:
+      image: node:lts-alpine3.23
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
       - uses: streetsidesoftware/cspell-action@3294df585d3d639e30f3bc019cb11940b9866e95 # v8
