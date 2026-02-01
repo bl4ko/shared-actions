@@ -14,10 +14,11 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "00 18 * * *"
-
 jobs:
   linkChecker:
-    runs-on: ${{ inputs.runs-on || 'ubuntu-latest' }}
+    runs-on: ${{ inputs.runs-on }}
+    container:
+      image: node:lts-alpine3.23
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
       - name: Link Checker

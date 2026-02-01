@@ -40,7 +40,7 @@ jobs:
         run: |
           # Convert newline-separated args into a single line
           ARGS=$(echo "${{ inputs.scan-args }}" | tr '\n' ' ')
-          
+
           if [ "${{ inputs.upload-sarif }}" == "true" ]; then
             echo "Running osv-scanner with SARIF output..."
             osv-scanner $ARGS --format sarif --output results.sarif

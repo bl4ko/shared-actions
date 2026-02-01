@@ -8,7 +8,7 @@ on:
         type: string
         default: .
       file:
-        description: Path to the Dockerfile. (default {context}/Dockerfile)
+        description: Path to the Dockerfile. (default Dockerfile)
         required: true
         type: string
         default: Dockerfile
@@ -16,11 +16,15 @@ on:
         description: Comma separated list of tags (name/app:latest,name/app:1.0.0)
         required: true
         type: string
-      load:
-        description: Load is a shorthand for --output=type=docker (default false)
+      push:
+        description: Whether to push the image (default true)
         required: false
-        type: bool
-        default: false
+        type: boolean
+        default: true
+      cache-repo:
+        description: Registry repository to use for caching
+        required: false
+        type: string
       runs-on:
         required: false
         type: string
@@ -29,38 +33,53 @@ on:
 permissions:
   contents: read
   packages: write
+
 jobs:
   build-and-scan:
     runs-on: ${{ inputs.runs-on }}
+    container:
+      image: cgr.dev/chainguard/kaniko:1.25.5
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
-
-      - name: Cache Docker layers
-        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5
-        with:
-          path: /tmp/.buildx-cache
-          # Invalidate cache if the Dockerfile changes
-          key: ${{ runner.os }}-buildx-${{ hashFiles(inputs.containerfile) }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image for scanning
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
-        with:
-          context: ${{ inputs.context }}
-          file: ${{ inputs.file }}
-          tags: ${{ inputs.tags }}
-          push: ${{ inputs.push }}
-          load: ${{ inputs.load }}
-          # Use local caching
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-
-      - name: Move cache
+      - name: Build and Push with Kaniko
         run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          # 1. Configure Authentication for GHCR
+          echo "{\"auths\":{\"ghcr.io\":{\"username\":\"${{ github.actor }}\",\"password\":\"${{ secrets.GITHUB_TOKEN }}\"}}}}" > /kaniko/.docker/config.json
+
+          # 2. Process Tags into Destinations
+          DESTINATIONS=""
+          CLEAN_TAGS=$(echo "${{ inputs.tags }}" | tr ',' ' ')
+          FIRST_TAG=""
+          for tag in $CLEAN_TAGS; do
+            if [ -z "$FIRST_TAG" ]; then FIRST_TAG=$tag; fi
+            DESTINATIONS="$DESTINATIONS --destination $tag"
+          done
+
+          # 3. Handle Push Flag
+          PUSH_FLAG=""
+          if [ "${{ inputs.push }}" = "false" ]; then
+             PUSH_FLAG="--no-push"
+          fi
+
+          # 4. Handle Caching
+          # Use provided cache-repo or default to the first tag with a /cache suffix
+          CACHE_REPO="${{ inputs.cache-repo }}"
+          if [ -z "$CACHE_REPO" ]; then
+             # Remove existing tag if present and append /cache
+             BASE_IMAGE=$(echo $FIRST_TAG | cut -d: -f1)
+             CACHE_REPO="${BASE_IMAGE}/cache"
+          fi
+
+          # 5. Run Kaniko Executor
+          # git:// protocol handles private repos via GIT_USERNAME/PASSWORD env vars.
+          /kaniko/executor \
+            --context "git://github.com/${{ github.repository }}#${{ github.sha }}" \
+            --context-sub-path "${{ inputs.context }}" \
+            --dockerfile "${{ inputs.file }}" \
+            $DESTINATIONS \
+            $PUSH_FLAG \
+            --cache=true \
+            --cache-repo "$CACHE_REPO" \
+            --force
+        env:
+          GIT_USERNAME: ${{ github.actor }}
+          GIT_PASSWORD: ${{ secrets.GITHUB_TOKEN }}

@@ -5,8 +5,6 @@ on:
       containerfile:
         description: |
           Path to the Containerfile. The image will be built and then scanned.
-          The image name is derived from the directory containing the Containerfile.
-          If the Containerfile is in the root, the repository name is used.
         required: true
         type: string
       image-tag:
@@ -23,136 +21,100 @@ on:
         required: false
         type: string
         default: "ubuntu-latest"
+
 permissions:
-  contents: read # packages:write is no longer needed
+  contents: read
+  packages: write
+
 jobs:
   build-and-scan:
     runs-on: ${{ inputs.runs-on }}
+    container:
+      image: ubuntu:24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+        uses: actions/checkout@v4
 
-      - name: Derive image name and context path
-        id: paths
+      - name: Install dependencies
         run: |
-          set -e
-          CONTAINERFILE_PATH="${{ inputs.containerfile }}"
-          CONTEXT_DIR=$(dirname "$CONTAINERFILE_PATH")
-          if [ "$CONTEXT_DIR" = "." ]; then
-            IMAGE_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2)
-          else
-            IMAGE_NAME=$(basename "$CONTEXT_DIR")
-          fi
-          echo "context_dir=${CONTEXT_DIR}" >> "$GITHUB_OUTPUT"
-          echo "image_name=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
-        shell: bash
+          apt-get update && apt-get install -y curl ca-certificates git jq
 
-      - name: Cache Docker layers
-        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5
-        with:
-          path: /tmp/.buildx-cache
-          # Invalidate cache if the Dockerfile changes
-          key: ${{ runner.os }}-buildx-${{ hashFiles(inputs.containerfile) }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image for scanning
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6
-        with:
-          context: ${{ steps.paths.outputs.context_dir }}
-          file: ${{ inputs.containerfile }}
-          tags: ${{ steps.paths.outputs.image_name }}:${{ inputs.image-tag }}
-          push: false
-          load: true
-          # Use local caching
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
-
-      - name: Move cache
+      - name: Setup Tools
         run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+          # Install Kaniko Executor (Using maintained binaries)
+          curl -Lo /usr/local/bin/executor https://github.com/GoogleContainerTools/kaniko/releases/download/v1.23.2/executor-linux-amd64
+          chmod +x /usr/local/bin/executor
 
-      - uses: actions/setup-go@v6
-        with:
-          go-version: '1.25.4'
+          # Install OSV-Scanner
+          curl -Lo /usr/local/bin/osv-scanner https://github.com/google/osv-scanner/releases/download/v1.9.2/osv-scanner_1.9.2_linux_amd64
+          chmod +x /usr/local/bin/osv-scanner
 
-      - name: Cache osv-scanner
-        id: cache-osv-scanner
-        uses: actions/cache@9255dc7a253b0ccc959486e2bca901246202afeb # v5
-        with:
-          path: ~/go/bin
-          key: ${{ runner.os }}-go-osv-scanner-go1.25.4
-          restore-keys: |
-            ${{ runner.os }}-go-osv-scanner-
-
-      - name: Install osv-scanner
-        if: steps.cache-osv-scanner.outputs.cache-hit != 'true'
-        run: go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.3.0
-
-      - name: Scan built image with OSV-Scanner
+      - name: Build and Push Image (Kaniko)
+        id: build
         run: |
-          set -e
-          SCAN_OUTPUT_FILE="osv-scan-results.txt"
-          osv-scanner scan image "${{ steps.paths.outputs.image_name }}:${{ inputs.image-tag }}" > "$SCAN_OUTPUT_FILE" || true
-          cat "$SCAN_OUTPUT_FILE"
+          # 1. Define Image Name
+          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_NAME="ghcr.io/$REPO_OWNER/osv-scan-target:${{ inputs.image-tag }}-${{ github.run_id }}"
 
-          SUMMARY_LINE=$(grep 'Total .* packages affected by' "$SCAN_OUTPUT_FILE")
+          echo "Building image: $IMAGE_NAME"
+
+          # 2. Configure Auth
+          mkdir -p /kaniko/.docker
+          echo "{\"auths\":{\"ghcr.io\":{\"username\":\"${{ github.actor }}\",\"password\":\"${{ secrets.GITHUB_TOKEN }}\"}}}}" > /kaniko/.docker/config.json
+
+          # 3. Build with Kaniko
+          /usr/local/bin/executor \
+            --context "git://github.com/${{ github.repository }}#${{ github.sha }}" \
+            --context-sub-path "$(dirname ${{ inputs.containerfile }})" \
+            --dockerfile "${{ inputs.containerfile }}" \
+            --destination "$IMAGE_NAME" \
+            --cache=true \
+            --force
+
+          echo "image=$IMAGE_NAME" >> $GITHUB_OUTPUT
+        env:
+          GIT_USERNAME: ${{ github.actor }}
+          GIT_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Scan Image
+        run: |
+          IMAGE="${{ steps.build.outputs.image }}"
+          OUTPUT_FILE="scan-results.txt"
+
+          echo "Scanning image: $IMAGE"
+
+          osv-scanner scan image "$IMAGE" > "$OUTPUT_FILE" || true
+          cat "$OUTPUT_FILE"
+
+          SUMMARY_LINE=$(grep 'Total .* packages affected by' "$OUTPUT_FILE")
 
           if [ -z "$SUMMARY_LINE" ]; then
-            echo "Could not find summary line in OSV scanner output. Assuming no vulnerabilities."
+            echo "No vulnerabilities found."
             exit 0
           fi
 
           get_count() {
-            local severity=$1
-            local line=$2
-            local count=$(echo "$line" | grep -o "[0-9]* $severity" | awk '{print $1}')
+            local count=$(echo "$2" | grep -o "[0-9]* $1" | awk '{print $1}')
             echo "${count:-0}"
           }
 
-          CRITICAL_COUNT=$(get_count "Critical" "$SUMMARY_LINE")
-          HIGH_COUNT=$(get_count "High" "$SUMMARY_LINE")
-          MEDIUM_COUNT=$(get_count "Medium" "$SUMMARY_LINE")
-          LOW_COUNT=$(get_count "Low" "$SUMMARY_LINE")
+          CRITICAL=$(get_count "Critical" "$SUMMARY_LINE")
+          HIGH=$(get_count "High" "$SUMMARY_LINE")
+          MEDIUM=$(get_count "Medium" "$SUMMARY_LINE")
+          LOW=$(get_count "Low" "$SUMMARY_LINE")
 
-          echo "Vulnerability counts:"
-          echo "Critical: $CRITICAL_COUNT"
-          echo "High: $HIGH_COUNT"
-          echo "Medium: $MEDIUM_COUNT"
-          echo "Low: $LOW_COUNT"
+          FAIL_THRESHOLD="${{ inputs.fail-on-severity }}"
+          SHOULD_FAIL=0
 
-          FAIL_SEVERITY="${{ inputs.fail-on-severity }}"
-          FAIL=0
+          case "$FAIL_THRESHOLD" in
+            low) if (( CRITICAL > 0 || HIGH > 0 || MEDIUM > 0 || LOW > 0 )); then SHOULD_FAIL=1; fi ;;
+            medium) if (( CRITICAL > 0 || HIGH > 0 || MEDIUM > 0 )); then SHOULD_FAIL=1; fi ;;
+            high) if (( CRITICAL > 0 || HIGH > 0 )); then SHOULD_FAIL=1; fi ;;
+            critical) if (( CRITICAL > 0 )); then SHOULD_FAIL=1; fi ;;
+          esac
 
-          echo "Checking for vulnerabilities with severity >= ${FAIL_SEVERITY}"
-
-          if [[ "$FAIL_SEVERITY" == "low" ]]; then
-            if (( CRITICAL_COUNT > 0 || HIGH_COUNT > 0 || MEDIUM_COUNT > 0 || LOW_COUNT > 0 )); then
-              FAIL=1
-            fi
-          elif [[ "$FAIL_SEVERITY" == "medium" ]]; then
-            if (( CRITICAL_COUNT > 0 || HIGH_COUNT > 0 || MEDIUM_COUNT > 0 )); then
-              FAIL=1
-            fi
-          elif [[ "$FAIL_SEVERITY" == "high" ]]; then
-            if (( CRITICAL_COUNT > 0 || HIGH_COUNT > 0 )); then
-              FAIL=1
-            fi
-          elif [[ "$FAIL_SEVERITY" == "critical" ]]; then
-            if (( CRITICAL_COUNT > 0 )); then
-              FAIL=1
-            fi
-          fi
-
-          if [[ "$FAIL" -eq 1 ]]; then
-            echo "Failing because vulnerabilities were found with severity >= ${FAIL_SEVERITY}"
+          if [[ "$SHOULD_FAIL" -eq 1 ]]; then
+            echo "::error::Scan failed due to ${FAIL_THRESHOLD}+ severity vulnerabilities."
             exit 1
-          else
-            echo "No vulnerabilities found with severity >= ${FAIL_SEVERITY}"
-            exit 0
           fi
         shell: bash
