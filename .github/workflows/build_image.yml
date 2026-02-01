@@ -29,23 +29,47 @@ on:
         required: false
         type: string
         default: "ubuntu-latest"
-
 permissions:
   contents: read
   packages: write
-
 jobs:
   build-and-scan:
     runs-on: ${{ inputs.runs-on }}
     container:
-      image: cgr.dev/chainguard/kaniko:1.25.5
+      image: ubuntu:24.04
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y git make curl ca-certificates
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build Kaniko Executor from Source
+        run: |
+          echo "Cloning Chainguard Kaniko fork..."
+          git clone --depth 1 --branch v1.25.6 https://github.com/chainguard-forks/kaniko.git /tmp/kaniko-src
+          cd /tmp/kaniko-src
+
+          echo "Building executor..."
+          # Build the executor binary using the Makefile target
+          make out/executor
+
+          echo "Installing executor..."
+          mv out/executor /usr/local/bin/executor
+          chmod +x /usr/local/bin/executor
+
       - name: Build and Push with Kaniko
         run: |
           # 1. Configure Authentication for GHCR
+          mkdir -p /kaniko/.docker
           echo "{\"auths\":{\"ghcr.io\":{\"username\":\"${{ github.actor }}\",\"password\":\"${{ secrets.GITHUB_TOKEN }}\"}}}}" > /kaniko/.docker/config.json
 
-          # 2. Process Tags into Destinations
+          # 2. Process Tags
           DESTINATIONS=""
           CLEAN_TAGS=$(echo "${{ inputs.tags }}" | tr ',' ' ')
           FIRST_TAG=""
@@ -61,17 +85,15 @@ jobs:
           fi
 
           # 4. Handle Caching
-          # Use provided cache-repo or default to the first tag with a /cache suffix
           CACHE_REPO="${{ inputs.cache-repo }}"
           if [ -z "$CACHE_REPO" ]; then
-             # Remove existing tag if present and append /cache
              BASE_IMAGE=$(echo $FIRST_TAG | cut -d: -f1)
              CACHE_REPO="${BASE_IMAGE}/cache"
           fi
 
           # 5. Run Kaniko Executor
-          # git:// protocol handles private repos via GIT_USERNAME/PASSWORD env vars.
-          /kaniko/executor \
+          echo "Running Kaniko Build..."
+          /usr/local/bin/executor \
             --context "git://github.com/${{ github.repository }}#${{ github.sha }}" \
             --context-sub-path "${{ inputs.context }}" \
             --dockerfile "${{ inputs.file }}" \
