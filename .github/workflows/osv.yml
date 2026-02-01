@@ -1,13 +1,66 @@
 name: OSV-Scanner PR Scan
 on:
   workflow_call:
+    inputs:
+      runs-on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      upload-sarif:
+        required: false
+        type: boolean
+        default: true
+      scan-args:
+        required: false
+        type: string
+        description: "Arguments to osv-scanner, separated by new line"
+        default: |-
+          --recursive
+          ./
+
 permissions:
-  # Required to upload SARIF file to CodeQL. See: https://github.com/github/codeql-action/issues/2117
+  # Required to upload SARIF file to CodeQL.
   actions: read
   # Require writing security events to upload SARIF file to security tab
   security-events: write
   # Only need to read contents
   contents: read
+
 jobs:
   scan-pr:
-    uses: "google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.0.3"
+    runs-on: ${{ inputs.runs-on }}
+    container:
+      image: ghcr.io/google/osv-scanner:v2.3.2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run OSV-Scanner
+        id: scanner
+        run: |
+          # Convert newline-separated args into a single line
+          ARGS=$(echo "${{ inputs.scan-args }}" | tr '\n' ' ')
+          
+          if [ "${{ inputs.upload-sarif }}" == "true" ]; then
+            echo "Running osv-scanner with SARIF output..."
+            osv-scanner $ARGS --format sarif --output results.sarif
+          else
+            echo "Running osv-scanner..."
+            osv-scanner $ARGS
+          fi
+        # If SARIF upload is enabled, we continue on error to ensure the upload step runs.
+        # osv-scanner exits with non-zero if vulnerabilities are found.
+        continue-on-error: ${{ inputs.upload-sarif }}
+
+      - name: Upload SARIF file
+        if: inputs.upload-sarif == true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+          category: osv-scanner
+
+      - name: Check for failures
+        if: inputs.upload-sarif == true && steps.scanner.outcome == 'failure'
+        run: |
+          echo "OSV-Scanner found vulnerabilities."
+          exit 1
