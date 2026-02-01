@@ -19,10 +19,15 @@ jobs:
     steps:
       - name: Install git
         run: apk add --no-cache git
+
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
           persist-credentials: false
+
+      - name: Configure Git Safe Directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.SVC_TOKEN }}
