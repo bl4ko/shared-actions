@@ -9,7 +9,7 @@ on:
         default: .
       file:
         description: Path to the Dockerfile. (default Dockerfile)
-        required: true
+        required: false
         type: string
         default: Dockerfile
       tags:
