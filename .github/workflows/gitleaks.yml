@@ -12,10 +12,11 @@ jobs:
   scan:
     name: gitleaks
     runs-on: ${{ inputs.runs-on }}
+    container:
+      image: zricethezav/gitleaks:v8.30.0
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@83373cf2f8c4db6e24b41c1a9b086bb9619e9cd3 # v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run Gitleaks
+        run: gitleaks detect --source . --verbose
