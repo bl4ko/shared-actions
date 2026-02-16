@@ -46,7 +46,8 @@ jobs:
           chmod +x /usr/local/bin/executor
 
           # Install OSV-Scanner
-          curl -Lo /usr/local/bin/osv-scanner https://github.com/google/osv-scanner/releases/download/v1.9.2/osv-scanner_1.9.2_linux_amd64
+          curl -fsSL -o /usr/local/bin/osv-scanner \
+            https://github.com/google/osv-scanner/releases/download/v2.3.3/osv-scanner_linux_amd64
           chmod +x /usr/local/bin/osv-scanner
 
       - name: Build and Push Image (Kaniko)
@@ -60,7 +61,7 @@ jobs:
 
           # 2. Configure Auth
           mkdir -p /kaniko/.docker
-          echo "{\"auths\":{\"ghcr.io\":{\"username\":\"${{ github.actor }}\",\"password\":\"${{ secrets.GITHUB_TOKEN }}\"}}}}" > /kaniko/.docker/config.json
+          echo "{\"auths\":{\"ghcr.io\":{\"username\":\"${{ github.actor }}\",\"password\":\"${{ secrets.GITHUB_TOKEN }}\"}}}" > /kaniko/.docker/config.json
 
           # 3. Build with Kaniko
           /usr/local/bin/executor \

@@ -29,11 +29,15 @@ permissions:
 jobs:
   scan-pr:
     runs-on: ${{ inputs.runs-on }}
-    container:
-      image: ghcr.io/google/osv-scanner:v2.3.2
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install OSV-Scanner
+        run: |
+          curl -fsSL -o /usr/local/bin/osv-scanner \
+            https://github.com/google/osv-scanner/releases/download/v2.3.3/osv-scanner_linux_amd64
+          chmod +x /usr/local/bin/osv-scanner
 
       - name: Run OSV-Scanner
         id: scanner

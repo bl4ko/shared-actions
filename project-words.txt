@@ -3,3 +3,5 @@ lycheeverse
 elif
 buildx
 containerfile
+esac
+kaniko
