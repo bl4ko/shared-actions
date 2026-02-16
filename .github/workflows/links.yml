@@ -23,6 +23,11 @@ jobs:
       - name: Install dependencies
         run: apk add --no-cache bash curl git
 
+      - name: Fix composite action paths in container
+        run: |
+          mkdir -p /home/runner
+          ln -s /__w /home/runner/work
+
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
 
       - name: Link Checker
