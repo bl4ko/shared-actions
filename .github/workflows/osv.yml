@@ -29,9 +29,15 @@ permissions:
 jobs:
   scan-pr:
     runs-on: ${{ inputs.runs-on }}
+    container:
+      image: ubuntu:24.04
     steps:
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y curl ca-certificates git
+
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install OSV-Scanner
         run: |
