@@ -18,10 +18,10 @@ jobs:
   linkChecker:
     runs-on: ${{ inputs.runs-on || 'ubuntu-latest' }}
     container:
-      image: node:lts-alpine3.23
+      image: ubuntu:24.04
     steps:
       - name: Install dependencies
-        run: apk add --no-cache bash curl git
+        run: apt-get update && apt-get install -y curl git
 
       - name: Fix composite action paths in container
         run: |
