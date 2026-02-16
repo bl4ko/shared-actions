@@ -18,8 +18,10 @@ jobs:
   linkChecker:
     runs-on: ${{ inputs.runs-on || 'ubuntu-latest' }}
     container:
-      image: node:lts-bookworm-slim
+      image: ubuntu:24.04
     steps:
+      - name: Install dependencies
+        run: apt-get update && apt-get install -y curl ca-certificates git
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
       - name: Link Checker
         id: lychee
