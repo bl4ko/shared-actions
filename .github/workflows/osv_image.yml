@@ -37,15 +37,23 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apt-get update && apt-get install -y curl ca-certificates git jq
+          apt-get update && apt-get install -y curl ca-certificates git jq make
 
-      - name: Setup Tools
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Build Kaniko Executor from Source
         run: |
-          # Install Kaniko Executor (Using maintained binaries)
-          curl -Lo /usr/local/bin/executor https://github.com/GoogleContainerTools/kaniko/releases/download/v1.23.2/executor-linux-amd64
+          git clone --depth 1 --branch v1.25.6 https://github.com/chainguard-forks/kaniko.git /tmp/kaniko-src
+          cd /tmp/kaniko-src
+          make out/executor
+          mv out/executor /usr/local/bin/executor
           chmod +x /usr/local/bin/executor
 
-          # Install OSV-Scanner
+      - name: Install OSV-Scanner
+        run: |
           curl -fsSL -o /usr/local/bin/osv-scanner \
             https://github.com/google/osv-scanner/releases/download/v2.3.3/osv-scanner_linux_amd64
           chmod +x /usr/local/bin/osv-scanner
@@ -53,17 +61,14 @@ jobs:
       - name: Build and Push Image (Kaniko)
         id: build
         run: |
-          # 1. Define Image Name
           REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           IMAGE_NAME="ghcr.io/$REPO_OWNER/osv-scan-target:${{ inputs.image-tag }}-${{ github.run_id }}"
 
           echo "Building image: $IMAGE_NAME"
 
-          # 2. Configure Auth
           mkdir -p /kaniko/.docker
           echo "{\"auths\":{\"ghcr.io\":{\"username\":\"${{ github.actor }}\",\"password\":\"${{ secrets.GITHUB_TOKEN }}\"}}}" > /kaniko/.docker/config.json
 
-          # 3. Build with Kaniko
           /usr/local/bin/executor \
             --context "git://github.com/${{ github.repository }}#${{ github.sha }}" \
             --context-sub-path "$(dirname ${{ inputs.containerfile }})" \

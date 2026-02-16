@@ -3,5 +3,6 @@ lycheeverse
 elif
 buildx
 containerfile
+chainguard
 esac
 kaniko
