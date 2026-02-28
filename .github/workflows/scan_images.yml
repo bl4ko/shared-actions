@@ -68,10 +68,10 @@ jobs:
             echo ""
             echo "=== Scanning: $img ==="
 
-            # Export image from registry using crane (no Docker needed)
+            # Pull image as Docker tarball (crane pull saves OCI/Docker format with manifest.json)
             TARBALL=$(mktemp --suffix=.tar)
-            if ! crane export "$img" "$TARBALL" 2>&1; then
-              echo "::error::Failed to export $img from registry."
+            if ! crane pull "$img" "$TARBALL" 2>&1; then
+              echo "::error::Failed to pull $img from registry."
               OVERALL_FAIL=1
               rm -f "$TARBALL"
               continue
