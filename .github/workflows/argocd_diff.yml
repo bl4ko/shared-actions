@@ -33,6 +33,18 @@ jobs:
         with:
           path: target-branch
 
+      - name: Get ArgoCD auth token
+        id: argocd-auth
+        env:
+          ARGOCD_NS: ${{ inputs.argocd-namespace }}
+        run: |
+          ARGOCD_SERVER="argocd-diff-preview-server.${ARGOCD_NS}.svc.cluster.local"
+          PASSWORD=$(kubectl get secret argocd-initial-admin-secret -n "$ARGOCD_NS" -o jsonpath='{.data.password}' | base64 -d)
+          TOKEN=$(curl -s "http://${ARGOCD_SERVER}/api/v1/session" \
+            -d "{\"username\":\"admin\",\"password\":\"${PASSWORD}\"}" | \
+            python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+          echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
+
       - name: Run argocd-diff-preview
         env:
           REPO: ${{ github.repository }}
@@ -45,6 +57,8 @@ jobs:
             --target-branch "refs/pull/${PR_NUMBER}/merge" \
             --argocd-namespace "$ARGOCD_NS" \
             --create-cluster=false \
+            --render-method=server-api \
+            --argocd-auth-token "${{ steps.argocd-auth.outputs.token }}" \
             --timeout 300
         continue-on-error: true
 
