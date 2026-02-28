@@ -1,4 +1,4 @@
-FROM golang:1.24-bookworm AS kaniko-builder
+FROM golang:1.26-bookworm@sha256:2a0ba12e116687098780d3ce700f9ce3cb340783779646aafbabed748fa6677c AS kaniko-builder
 
 RUN git clone --depth 1 --branch v1.25.6 \
       https://github.com/chainguard-forks/kaniko.git /tmp/kaniko && \
