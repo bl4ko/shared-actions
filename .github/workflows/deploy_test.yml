@@ -78,13 +78,21 @@ jobs:
             # Filter to only safe-to-test resource kinds
             FILTERED=$(mktemp)
             awk '
-              BEGIN { include=0; kind="" }
-              /^---/ { include=0; kind="" }
-              /^kind:/ {
-                kind=$2
-                if (kind == "Deployment" || kind == "Service" || kind == "ConfigMap") include=1
+              BEGIN { buf=""; kind="" }
+              /^---/ {
+                if (kind == "Deployment" || kind == "Service" || kind == "ConfigMap") {
+                  printf "%s", buf
+                }
+                buf="---\n"; kind=""
+                next
               }
-              include { print }
+              /^kind:/ { kind=$2 }
+              { buf = buf $0 "\n" }
+              END {
+                if (kind == "Deployment" || kind == "Service" || kind == "ConfigMap") {
+                  printf "%s", buf
+                }
+              }
             ' "$RENDERED" > "$FILTERED"
 
             if [ ! -s "$FILTERED" ]; then
