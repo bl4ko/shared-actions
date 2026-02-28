@@ -1,0 +1,97 @@
+name: ArgoCD diff preview
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      argocd-namespace:
+        description: "Namespace of the dedicated ArgoCD instance for diff rendering"
+        required: false
+        type: string
+        default: "argocd-diff-preview"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  diff:
+    runs-on: ${{ inputs.runs-on }}
+    container:
+      image: ubuntu:24.04
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y curl ca-certificates git jq
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install tools
+        run: |
+          # kubectl
+          curl -fsSL -o /usr/local/bin/kubectl \
+            "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x /usr/local/bin/kubectl
+
+          # argocd CLI
+          curl -fsSL -o /usr/local/bin/argocd \
+            https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x /usr/local/bin/argocd
+
+          # argocd-diff-preview
+          curl -fsSL -o /tmp/argocd-diff-preview.tar.gz \
+            https://github.com/dag-andersen/argocd-diff-preview/releases/download/v0.1.26/argocd-diff-preview-Linux-x86_64.tar.gz
+          tar -xzf /tmp/argocd-diff-preview.tar.gz -C /usr/local/bin
+          chmod +x /usr/local/bin/argocd-diff-preview
+
+      - name: Run argocd-diff-preview
+        env:
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ARGOCD_NS: ${{ inputs.argocd-namespace }}
+        run: |
+          git config --global --add safe.directory "$PWD"
+
+          argocd-diff-preview \
+            --repo "$REPO" \
+            --base-branch main \
+            --target-branch "refs/pull/${PR_NUMBER}/merge" \
+            --argocd-namespace "$ARGOCD_NS" \
+            --create-cluster=false \
+            --timeout 300
+        continue-on-error: true
+
+      - name: Post diff as PR comment
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          DIFF_FILE="output/diff.md"
+
+          if [ ! -f "$DIFF_FILE" ]; then
+            echo "No diff output found, skipping PR comment."
+            exit 0
+          fi
+
+          # Truncate if too large for GitHub comment (max 65536 chars)
+          CONTENT=$(head -c 60000 "$DIFF_FILE")
+
+          BODY="## ArgoCD Diff Preview
+
+          ${CONTENT}"
+
+          # Post or update PR comment
+          gh pr comment "$PR_NUMBER" \
+            --repo "$GH_REPO" \
+            --body "$BODY" \
+            --edit-last 2>/dev/null || \
+          gh pr comment "$PR_NUMBER" \
+            --repo "$GH_REPO" \
+            --body "$BODY"

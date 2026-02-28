@@ -1,8 +1,12 @@
+ACMR
 SARIF
-lycheeverse
-elif
 buildx
-containerfile
 chainguard
+containerfile
+containerregistry
+elif
 esac
 kaniko
+kustomize
+lycheeverse
+mktemp

@@ -1,0 +1,125 @@
+name: Scan container images with OSV-Scanner
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      fail-on-severity:
+        description: "Minimum severity to fail on: critical, high, medium, low"
+        required: false
+        type: string
+        default: "critical"
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ${{ inputs.runs-on }}
+    container:
+      image: ubuntu:24.04
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y curl ca-certificates git
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install OSV-Scanner
+        run: |
+          curl -fsSL -o /usr/local/bin/osv-scanner \
+            https://github.com/google/osv-scanner/releases/download/v2.3.3/osv-scanner_linux_amd64
+          chmod +x /usr/local/bin/osv-scanner
+
+      - name: Extract and scan image references
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          FAIL_THRESHOLD: ${{ inputs.fail-on-severity }}
+        run: |
+          if [ -z "$BASE_SHA" ]; then
+            echo "Not a pull request event, skipping."
+            exit 0
+          fi
+
+          git config --global --add safe.directory "$PWD"
+
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- '*.yml' '*.yaml')
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No YAML files changed."
+            exit 0
+          fi
+
+          IMAGES=$(echo "$CHANGED_FILES" | xargs grep -hE '^\s*(image|value):\s*\S+' 2>/dev/null \
+            | grep -oE '[a-zA-Z0-9._/-]+:[a-zA-Z0-9._-]+' \
+            | grep -E '^[a-z]' \
+            | grep -vE '^\s*#' \
+            | grep '/' \
+            | sort -u)
+
+          if [ -z "$IMAGES" ]; then
+            echo "No image references found in changed files."
+            exit 0
+          fi
+
+          echo "Found image references to scan:"
+          echo "$IMAGES"
+          echo "---"
+
+          OVERALL_FAIL=0
+          for img in $IMAGES; do
+            echo ""
+            echo "=== Scanning: $img ==="
+            OUTPUT_FILE=$(mktemp)
+
+            osv-scanner scan image "$img" > "$OUTPUT_FILE" 2>&1 || true
+            cat "$OUTPUT_FILE"
+
+            SUMMARY_LINE=$(grep 'Total .* packages affected by' "$OUTPUT_FILE" || true)
+
+            if [ -z "$SUMMARY_LINE" ]; then
+              echo "No vulnerabilities found for $img."
+              rm -f "$OUTPUT_FILE"
+              continue
+            fi
+
+            get_count() {
+              local count
+              count=$(echo "$2" | grep -o "[0-9]* $1" | awk '{print $1}')
+              echo "${count:-0}"
+            }
+
+            CRITICAL=$(get_count "Critical" "$SUMMARY_LINE")
+            HIGH=$(get_count "High" "$SUMMARY_LINE")
+            MEDIUM=$(get_count "Medium" "$SUMMARY_LINE")
+            LOW=$(get_count "Low" "$SUMMARY_LINE")
+
+            SHOULD_FAIL=0
+            case "$FAIL_THRESHOLD" in
+              low) if (( CRITICAL > 0 || HIGH > 0 || MEDIUM > 0 || LOW > 0 )); then SHOULD_FAIL=1; fi ;;
+              medium) if (( CRITICAL > 0 || HIGH > 0 || MEDIUM > 0 )); then SHOULD_FAIL=1; fi ;;
+              high) if (( CRITICAL > 0 || HIGH > 0 )); then SHOULD_FAIL=1; fi ;;
+              critical) if (( CRITICAL > 0 )); then SHOULD_FAIL=1; fi ;;
+            esac
+
+            if [ "$SHOULD_FAIL" -eq 1 ]; then
+              echo "::warning::$img has ${FAIL_THRESHOLD}+ severity vulnerabilities (Critical=$CRITICAL High=$HIGH Medium=$MEDIUM Low=$LOW)"
+              OVERALL_FAIL=1
+            fi
+
+            rm -f "$OUTPUT_FILE"
+          done
+
+          if [ "$OVERALL_FAIL" -eq 1 ]; then
+            echo "::error::One or more images have vulnerabilities at or above $FAIL_THRESHOLD severity."
+            exit 1
+          fi
+
+          echo "All images passed vulnerability scan."

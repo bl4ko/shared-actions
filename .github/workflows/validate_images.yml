@@ -1,0 +1,87 @@
+name: Validate container image references
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ${{ inputs.runs-on }}
+    container:
+      image: ubuntu:24.04
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y curl ca-certificates git jq
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install crane
+        run: |
+          curl -fsSL -o /tmp/go-containerregistry.tar.gz \
+            https://github.com/google/go-containerregistry/releases/download/v0.21.1/go-containerregistry_Linux_x86_64.tar.gz
+          tar -xzf /tmp/go-containerregistry.tar.gz -C /usr/local/bin crane
+          chmod +x /usr/local/bin/crane
+
+      - name: Extract and validate image references
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ -z "$BASE_SHA" ]; then
+            echo "Not a pull request event, skipping."
+            exit 0
+          fi
+
+          git config --global --add safe.directory "$PWD"
+
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- '*.yml' '*.yaml')
+
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No YAML files changed."
+            exit 0
+          fi
+
+          # Extract unique image references from changed files
+          IMAGES=$(echo "$CHANGED_FILES" | xargs grep -hE '^\s*(image|value):\s*\S+' 2>/dev/null \
+            | grep -oE '[a-zA-Z0-9._/-]+:[a-zA-Z0-9._-]+' \
+            | grep -E '^[a-z]' \
+            | grep -vE '^\s*#' \
+            | grep '/' \
+            | sort -u)
+
+          if [ -z "$IMAGES" ]; then
+            echo "No image references found in changed files."
+            exit 0
+          fi
+
+          echo "Found image references:"
+          echo "$IMAGES"
+          echo "---"
+
+          FAILED=0
+          for img in $IMAGES; do
+            echo -n "Checking $img ... "
+            if timeout 30 crane manifest "$img" > /dev/null 2>&1; then
+              echo "OK"
+            else
+              echo "FAILED"
+              FAILED=1
+            fi
+          done
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "::error::One or more image references are not accessible."
+            exit 1
+          fi
+
+          echo "All image references validated successfully."

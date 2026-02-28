@@ -1,0 +1,165 @@
+name: Test deployment in temporary namespace
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      namespace:
+        description: "Namespace to deploy test workloads into"
+        required: false
+        type: string
+        default: "ci-test"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-test:
+    runs-on: ${{ inputs.runs-on }}
+    container:
+      image: ubuntu:24.04
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update && apt-get install -y curl ca-certificates git
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Install kubectl and kustomize
+        run: |
+          curl -fsSL -o /usr/local/bin/kubectl \
+            "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x /usr/local/bin/kubectl
+
+          curl -fsSL -o /tmp/kustomize.tar.gz \
+            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.6.0/kustomize_v5.6.0_linux_amd64.tar.gz"
+          tar -xzf /tmp/kustomize.tar.gz -C /usr/local/bin
+          chmod +x /usr/local/bin/kustomize
+
+      - name: Detect changed app directories
+        id: detect
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ -z "$BASE_SHA" ]; then
+            echo "Not a pull request event, skipping."
+            echo "apps=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config --global --add safe.directory "$PWD"
+
+          # Find changed resource directories that have a kustomization file
+          CHANGED_DIRS=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- '*/resources/*' \
+            | sed 's|/[^/]*$||' \
+            | sort -u)
+
+          APP_DIRS=""
+          for dir in $CHANGED_DIRS; do
+            if [ -f "$dir/kustomization.yaml" ] || [ -f "$dir/kustomization.yml" ]; then
+              APP_DIRS="$APP_DIRS $dir"
+            fi
+          done
+
+          APP_DIRS=$(echo "$APP_DIRS" | xargs)
+          echo "Detected app directories: $APP_DIRS"
+          echo "apps=$APP_DIRS" >> "$GITHUB_OUTPUT"
+
+      - name: Build and deploy test workloads
+        if: steps.detect.outputs.apps != ''
+        env:
+          NS: ${{ inputs.namespace }}
+          APP_DIRS: ${{ steps.detect.outputs.apps }}
+        run: |
+          FAILED=0
+
+          for dir in $APP_DIRS; do
+            echo ""
+            echo "=== Processing: $dir ==="
+
+            RENDERED=$(mktemp)
+            kustomize build "$dir" > "$RENDERED" 2>&1 || {
+              echo "::warning::kustomize build failed for $dir, skipping"
+              rm -f "$RENDERED"
+              continue
+            }
+
+            # Filter to only safe-to-test resource kinds and patch PVC volumes to emptyDir
+            FILTERED=$(mktemp)
+            awk '
+              BEGIN { include=0; kind="" }
+              /^---/ { include=0; kind="" }
+              /^kind:/ {
+                kind=$2
+                if (kind == "Deployment" || kind == "Service" || kind == "ConfigMap") include=1
+              }
+              include { print }
+            ' "$RENDERED" > "$FILTERED"
+
+            if [ ! -s "$FILTERED" ]; then
+              echo "No deployable resources (Deployment/Service/ConfigMap) in $dir, skipping."
+              rm -f "$RENDERED" "$FILTERED"
+              continue
+            fi
+
+            # Patch: replace PVC claimName volume sources with emptyDir
+            PATCHED=$(mktemp)
+            sed '/persistentVolumeClaim:/,/claimName:/{
+              s/persistentVolumeClaim:/emptyDir: {}/
+              /claimName:/d
+            }' "$FILTERED" > "$PATCHED"
+
+            echo "Applying to namespace $NS..."
+            kubectl apply -f "$PATCHED" -n "$NS" --timeout=60s || {
+              echo "::error::kubectl apply failed for $dir"
+              FAILED=1
+            }
+
+            rm -f "$RENDERED" "$FILTERED" "$PATCHED"
+          done
+
+          if [ "$FAILED" -eq 1 ]; then
+            exit 1
+          fi
+
+      - name: Wait for pods to become ready
+        if: steps.detect.outputs.apps != ''
+        env:
+          NS: ${{ inputs.namespace }}
+        run: |
+          echo "Waiting for pods in $NS to become Ready..."
+
+          # Give pods time to be created
+          sleep 5
+
+          POD_COUNT=$(kubectl get pods -n "$NS" --no-headers 2>/dev/null | wc -l)
+          if [ "$POD_COUNT" -eq 0 ]; then
+            echo "No pods found in $NS, nothing to wait for."
+            exit 0
+          fi
+
+          kubectl wait --for=condition=Ready pods --all -n "$NS" --timeout=120s || {
+            echo "::error::Pods did not become Ready within 120s"
+            echo "--- Pod status ---"
+            kubectl get pods -n "$NS" -o wide
+            echo "--- Pod events ---"
+            kubectl get events -n "$NS" --sort-by='.lastTimestamp' | tail -20
+            exit 1
+          }
+
+          echo "All pods are Ready."
+
+      - name: Cleanup test namespace
+        if: always() && steps.detect.outputs.apps != ''
+        env:
+          NS: ${{ inputs.namespace }}
+        run: |
+          echo "Cleaning up resources in $NS..."
+          kubectl delete deployments,services,configmaps,replicasets,pods --all -n "$NS" --timeout=60s --ignore-not-found || true
+          echo "Cleanup complete."
