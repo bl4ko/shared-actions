@@ -67,19 +67,20 @@ jobs:
           for img in $IMAGES; do
             echo ""
             echo "=== Scanning: $img ==="
-            OUTPUT_FILE=$(mktemp)
 
-            SCAN_EXIT=0
-            osv-scanner scan image "$img" > "$OUTPUT_FILE" 2>&1 || SCAN_EXIT=$?
-            cat "$OUTPUT_FILE"
-
-            # Check if the scanner failed to pull/access the image
-            if grep -qiE '(failed to pull|error pulling|no such image|MANIFEST_UNKNOWN|not found)' "$OUTPUT_FILE"; then
-              echo "::error::Failed to scan $img — image not accessible."
+            # Export image from registry using crane (no Docker needed)
+            TARBALL=$(mktemp --suffix=.tar)
+            if ! crane export "$img" "$TARBALL" 2>&1; then
+              echo "::error::Failed to export $img from registry."
               OVERALL_FAIL=1
-              rm -f "$OUTPUT_FILE"
+              rm -f "$TARBALL"
               continue
             fi
+
+            OUTPUT_FILE=$(mktemp)
+            osv-scanner scan image --archive "$TARBALL" > "$OUTPUT_FILE" 2>&1 || true
+            cat "$OUTPUT_FILE"
+            rm -f "$TARBALL"
 
             SUMMARY_LINE=$(grep 'Total .* packages affected by' "$OUTPUT_FILE" || true)
 
