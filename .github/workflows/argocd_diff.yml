@@ -42,7 +42,7 @@ jobs:
           PASSWORD=$(kubectl get secret argocd-initial-admin-secret -n "$ARGOCD_NS" -o jsonpath='{.data.password}' | base64 -d)
           TOKEN=$(curl -s "http://${ARGOCD_SERVER}/api/v1/session" \
             -d "{\"username\":\"admin\",\"password\":\"${PASSWORD}\"}" | \
-            python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+            jq -r '.token')
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
 
       - name: Run argocd-diff-preview

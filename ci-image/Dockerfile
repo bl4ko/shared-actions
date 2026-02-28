@@ -22,7 +22,7 @@ ARG ARGOCD_DIFF_VERSION=v0.1.26
 ARG GH_CLI_VERSION=2.72.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl git jq make && \
+      ca-certificates curl git jq make python3 && \
     rm -rf /var/lib/apt/lists/*
 
 # crane
