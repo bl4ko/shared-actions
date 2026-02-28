@@ -69,8 +69,17 @@ jobs:
             echo "=== Scanning: $img ==="
             OUTPUT_FILE=$(mktemp)
 
-            osv-scanner scan image "$img" > "$OUTPUT_FILE" 2>&1 || true
+            SCAN_EXIT=0
+            osv-scanner scan image "$img" > "$OUTPUT_FILE" 2>&1 || SCAN_EXIT=$?
             cat "$OUTPUT_FILE"
+
+            # Check if the scanner failed to pull/access the image
+            if grep -qiE '(failed to pull|error pulling|no such image|MANIFEST_UNKNOWN|not found)' "$OUTPUT_FILE"; then
+              echo "::error::Failed to scan $img — image not accessible."
+              OVERALL_FAIL=1
+              rm -f "$OUTPUT_FILE"
+              continue
+            fi
 
             SUMMARY_LINE=$(grep 'Total .* packages affected by' "$OUTPUT_FILE" || true)
 

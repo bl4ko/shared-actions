@@ -22,10 +22,16 @@ jobs:
     container:
       image: ghcr.io/bl4ko/ci-tools:latest
     steps:
-      - name: Checkout repository
+      - name: Checkout base branch
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          ref: main
+          path: base-branch
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v6
+        with:
+          path: target-branch
 
       - name: Run argocd-diff-preview
         env:
@@ -33,8 +39,6 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           ARGOCD_NS: ${{ inputs.argocd-namespace }}
         run: |
-          git config --global --add safe.directory "$PWD"
-
           argocd-diff-preview \
             --repo "$REPO" \
             --base-branch main \
@@ -58,7 +62,6 @@ jobs:
             exit 0
           fi
 
-          # Truncate if too large for GitHub comment (max 65536 chars)
           CONTENT=$(head -c 60000 "$DIFF_FILE")
 
           BODY="## ArgoCD Diff Preview
