@@ -40,7 +40,8 @@ jobs:
         run: |
           ARGOCD_SERVER="argocd-diff-preview-server.${ARGOCD_NS}.svc.cluster.local"
           PASSWORD=$(kubectl get secret argocd-initial-admin-secret -n "$ARGOCD_NS" -o jsonpath='{.data.password}' | base64 -d)
-          TOKEN=$(curl -s "http://${ARGOCD_SERVER}/api/v1/session" \
+          TOKEN=$(curl -s -H "Content-Type: application/json" \
+            "http://${ARGOCD_SERVER}/api/v1/session" \
             -d "{\"username\":\"admin\",\"password\":\"${PASSWORD}\"}" | \
             jq -r '.token')
           echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
