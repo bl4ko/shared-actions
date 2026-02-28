@@ -14,23 +14,12 @@ jobs:
   validate:
     runs-on: ${{ inputs.runs-on }}
     container:
-      image: ubuntu:24.04
+      image: ghcr.io/bl4ko/ci-tools:latest
     steps:
-      - name: Install dependencies
-        run: |
-          apt-get update && apt-get install -y curl ca-certificates git jq
-
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      - name: Install crane
-        run: |
-          curl -fsSL -o /tmp/go-containerregistry.tar.gz \
-            https://github.com/google/go-containerregistry/releases/download/v0.21.1/go-containerregistry_Linux_x86_64.tar.gz
-          tar -xzf /tmp/go-containerregistry.tar.gz -C /usr/local/bin crane
-          chmod +x /usr/local/bin/crane
 
       - name: Extract and validate image references
         env:

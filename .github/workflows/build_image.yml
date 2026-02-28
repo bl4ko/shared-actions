@@ -36,72 +36,54 @@ jobs:
   build-and-scan:
     runs-on: ${{ inputs.runs-on }}
     container:
-      image: ubuntu:24.04
+      image: ghcr.io/bl4ko/ci-tools:latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Install dependencies
-        run: apt-get update && apt-get install -y git make curl ca-certificates
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-
-      - name: Build Kaniko Executor from Source
-        run: |
-          echo "Cloning Chainguard Kaniko fork..."
-          git clone --depth 1 --branch v1.25.6 https://github.com/chainguard-forks/kaniko.git /tmp/kaniko-src
-          cd /tmp/kaniko-src
-
-          echo "Building executor..."
-          # Build the executor binary using the Makefile target
-          make out/executor
-
-          echo "Installing executor..."
-          mv out/executor /usr/local/bin/executor
-          chmod +x /usr/local/bin/executor
-
       - name: Build and Push with Kaniko
+        env:
+          GH_ACTOR: ${{ github.actor }}
+          GH_TOKEN_VAL: ${{ secrets.GITHUB_TOKEN }}
+          TAGS: ${{ inputs.tags }}
+          PUSH: ${{ inputs.push }}
+          CACHE_REPO_INPUT: ${{ inputs.cache-repo }}
+          REPO: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          CONTEXT: ${{ inputs.context }}
+          DOCKERFILE: ${{ inputs.file }}
+          GIT_USERNAME: ${{ github.actor }}
+          GIT_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # 1. Configure Authentication for GHCR
           mkdir -p /kaniko/.docker
-          echo "{\"auths\":{\"ghcr.io\":{\"username\":\"${{ github.actor }}\",\"password\":\"${{ secrets.GITHUB_TOKEN }}\"}}}" > /kaniko/.docker/config.json
+          echo "{\"auths\":{\"ghcr.io\":{\"username\":\"$GH_ACTOR\",\"password\":\"$GH_TOKEN_VAL\"}}}" > /kaniko/.docker/config.json
 
-          # 2. Process Tags
           DESTINATIONS=""
-          CLEAN_TAGS=$(echo "${{ inputs.tags }}" | tr ',' ' ')
+          CLEAN_TAGS=$(echo "$TAGS" | tr ',' ' ')
           FIRST_TAG=""
           for tag in $CLEAN_TAGS; do
             if [ -z "$FIRST_TAG" ]; then FIRST_TAG=$tag; fi
             DESTINATIONS="$DESTINATIONS --destination $tag"
           done
 
-          # 3. Handle Push Flag
           PUSH_FLAG=""
-          if [ "${{ inputs.push }}" = "false" ]; then
+          if [ "$PUSH" = "false" ]; then
              PUSH_FLAG="--no-push"
           fi
 
-          # 4. Handle Caching
-          CACHE_REPO="${{ inputs.cache-repo }}"
+          CACHE_REPO="$CACHE_REPO_INPUT"
           if [ -z "$CACHE_REPO" ]; then
-             BASE_IMAGE=$(echo $FIRST_TAG | cut -d: -f1)
+             BASE_IMAGE=$(echo "$FIRST_TAG" | cut -d: -f1)
              CACHE_REPO="${BASE_IMAGE}/cache"
           fi
 
-          # 5. Run Kaniko Executor
           echo "Running Kaniko Build..."
           /usr/local/bin/executor \
-            --context "git://github.com/${{ github.repository }}#${{ github.sha }}" \
-            --context-sub-path "${{ inputs.context }}" \
-            --dockerfile "${{ inputs.file }}" \
+            --context "git://github.com/${REPO}#${COMMIT_SHA}" \
+            --context-sub-path "$CONTEXT" \
+            --dockerfile "$DOCKERFILE" \
             $DESTINATIONS \
             $PUSH_FLAG \
             --cache=true \
             --cache-repo "$CACHE_REPO" \
             --force
-        env:
-          GIT_USERNAME: ${{ github.actor }}
-          GIT_PASSWORD: ${{ secrets.GITHUB_TOKEN }}

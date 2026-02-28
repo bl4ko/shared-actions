@@ -19,22 +19,12 @@ jobs:
   scan:
     runs-on: ${{ inputs.runs-on }}
     container:
-      image: ubuntu:24.04
+      image: ghcr.io/bl4ko/ci-tools:latest
     steps:
-      - name: Install dependencies
-        run: |
-          apt-get update && apt-get install -y curl ca-certificates git
-
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      - name: Install OSV-Scanner
-        run: |
-          curl -fsSL -o /usr/local/bin/osv-scanner \
-            https://github.com/google/osv-scanner/releases/download/v2.3.3/osv-scanner_linux_amd64
-          chmod +x /usr/local/bin/osv-scanner
 
       - name: Extract and scan image references
         shell: bash

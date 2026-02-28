@@ -19,27 +19,12 @@ jobs:
   deploy-test:
     runs-on: ${{ inputs.runs-on }}
     container:
-      image: ubuntu:24.04
+      image: ghcr.io/bl4ko/ci-tools:latest
     steps:
-      - name: Install dependencies
-        run: |
-          apt-get update && apt-get install -y curl ca-certificates git
-
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      - name: Install kubectl and kustomize
-        run: |
-          curl -fsSL -o /usr/local/bin/kubectl \
-            "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x /usr/local/bin/kubectl
-
-          curl -fsSL -o /tmp/kustomize.tar.gz \
-            "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.6.0/kustomize_v5.6.0_linux_amd64.tar.gz"
-          tar -xzf /tmp/kustomize.tar.gz -C /usr/local/bin
-          chmod +x /usr/local/bin/kustomize
 
       - name: Detect changed app directories
         id: detect
@@ -90,7 +75,7 @@ jobs:
               continue
             }
 
-            # Filter to only safe-to-test resource kinds and patch PVC volumes to emptyDir
+            # Filter to only safe-to-test resource kinds
             FILTERED=$(mktemp)
             awk '
               BEGIN { include=0; kind="" }
@@ -134,8 +119,6 @@ jobs:
           NS: ${{ inputs.namespace }}
         run: |
           echo "Waiting for pods in $NS to become Ready..."
-
-          # Give pods time to be created
           sleep 5
 
           POD_COUNT=$(kubectl get pods -n "$NS" --no-headers 2>/dev/null | wc -l)

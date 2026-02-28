@@ -30,36 +30,26 @@ jobs:
   scan-pr:
     runs-on: ${{ inputs.runs-on }}
     container:
-      image: ubuntu:24.04
+      image: ghcr.io/bl4ko/ci-tools:latest
     steps:
-      - name: Install dependencies
-        run: |
-          apt-get update && apt-get install -y curl ca-certificates git
-
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install OSV-Scanner
-        run: |
-          curl -fsSL -o /usr/local/bin/osv-scanner \
-            https://github.com/google/osv-scanner/releases/download/v2.3.3/osv-scanner_linux_amd64
-          chmod +x /usr/local/bin/osv-scanner
-
       - name: Run OSV-Scanner
         id: scanner
+        env:
+          SCAN_ARGS: ${{ inputs.scan-args }}
+          UPLOAD_SARIF: ${{ inputs.upload-sarif }}
         run: |
-          # Convert newline-separated args into a single line
-          ARGS=$(echo "${{ inputs.scan-args }}" | tr '\n' ' ')
+          ARGS=$(echo "$SCAN_ARGS" | tr '\n' ' ')
 
-          if [ "${{ inputs.upload-sarif }}" = "true" ]; then
+          if [ "$UPLOAD_SARIF" = "true" ]; then
             echo "Running osv-scanner with SARIF output..."
             osv-scanner $ARGS --format sarif --output results.sarif
           else
             echo "Running osv-scanner..."
             osv-scanner $ARGS
           fi
-        # If SARIF upload is enabled, we continue on error to ensure the upload step runs.
-        # osv-scanner exits with non-zero if vulnerabilities are found.
         continue-on-error: ${{ inputs.upload-sarif }}
 
       - name: Upload SARIF file

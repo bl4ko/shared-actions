@@ -30,61 +30,49 @@ jobs:
   build-and-scan:
     runs-on: ${{ inputs.runs-on }}
     container:
-      image: ubuntu:24.04
+      image: ghcr.io/bl4ko/ci-tools:latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Install dependencies
-        run: |
-          apt-get update && apt-get install -y curl ca-certificates git jq make
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-
-      - name: Build Kaniko Executor from Source
-        run: |
-          git clone --depth 1 --branch v1.25.6 https://github.com/chainguard-forks/kaniko.git /tmp/kaniko-src
-          cd /tmp/kaniko-src
-          make out/executor
-          mv out/executor /usr/local/bin/executor
-          chmod +x /usr/local/bin/executor
-
-      - name: Install OSV-Scanner
-        run: |
-          curl -fsSL -o /usr/local/bin/osv-scanner \
-            https://github.com/google/osv-scanner/releases/download/v2.3.3/osv-scanner_linux_amd64
-          chmod +x /usr/local/bin/osv-scanner
-
       - name: Build and Push Image (Kaniko)
         id: build
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+          IMAGE_TAG: ${{ inputs.image-tag }}
+          RUN_ID: ${{ github.run_id }}
+          GH_ACTOR: ${{ github.actor }}
+          GH_TOKEN_VAL: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          CONTAINERFILE: ${{ inputs.containerfile }}
+          GIT_USERNAME: ${{ github.actor }}
+          GIT_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          REPO_OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-          IMAGE_NAME="ghcr.io/$REPO_OWNER/osv-scan-target:${{ inputs.image-tag }}-${{ github.run_id }}"
+          OWNER_LC=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
+          IMAGE_NAME="ghcr.io/$OWNER_LC/osv-scan-target:${IMAGE_TAG}-${RUN_ID}"
 
           echo "Building image: $IMAGE_NAME"
 
           mkdir -p /kaniko/.docker
-          echo "{\"auths\":{\"ghcr.io\":{\"username\":\"${{ github.actor }}\",\"password\":\"${{ secrets.GITHUB_TOKEN }}\"}}}" > /kaniko/.docker/config.json
+          echo "{\"auths\":{\"ghcr.io\":{\"username\":\"$GH_ACTOR\",\"password\":\"$GH_TOKEN_VAL\"}}}" > /kaniko/.docker/config.json
 
           /usr/local/bin/executor \
-            --context "git://github.com/${{ github.repository }}#${{ github.sha }}" \
-            --context-sub-path "$(dirname ${{ inputs.containerfile }})" \
-            --dockerfile "${{ inputs.containerfile }}" \
+            --context "git://github.com/${REPO}#${COMMIT_SHA}" \
+            --context-sub-path "$(dirname "$CONTAINERFILE")" \
+            --dockerfile "$CONTAINERFILE" \
             --destination "$IMAGE_NAME" \
             --cache=true \
             --force
 
-          echo "image=$IMAGE_NAME" >> $GITHUB_OUTPUT
-        env:
-          GIT_USERNAME: ${{ github.actor }}
-          GIT_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          echo "image=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Scan Image
+        shell: bash
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+          FAIL_THRESHOLD: ${{ inputs.fail-on-severity }}
         run: |
-          IMAGE="${{ steps.build.outputs.image }}"
           OUTPUT_FILE="scan-results.txt"
 
           echo "Scanning image: $IMAGE"
@@ -109,7 +97,6 @@ jobs:
           MEDIUM=$(get_count "Medium" "$SUMMARY_LINE")
           LOW=$(get_count "Low" "$SUMMARY_LINE")
 
-          FAIL_THRESHOLD="${{ inputs.fail-on-severity }}"
           SHOULD_FAIL=0
 
           case "$FAIL_THRESHOLD" in
@@ -123,4 +110,3 @@ jobs:
             echo "::error::Scan failed due to ${FAIL_THRESHOLD}+ severity vulnerabilities."
             exit 1
           fi
-        shell: bash

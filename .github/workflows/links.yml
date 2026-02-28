@@ -18,11 +18,8 @@ jobs:
   linkChecker:
     runs-on: ${{ inputs.runs-on || 'ubuntu-latest' }}
     container:
-      image: ubuntu:24.04
+      image: ghcr.io/bl4ko/ci-tools:latest
     steps:
-      - name: Install dependencies
-        run: apt-get update && apt-get install -y curl git
-
       - name: Fix composite action paths in container
         run: |
           mkdir -p /home/runner

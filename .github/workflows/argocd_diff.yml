@@ -20,34 +20,12 @@ jobs:
   diff:
     runs-on: ${{ inputs.runs-on }}
     container:
-      image: ubuntu:24.04
+      image: ghcr.io/bl4ko/ci-tools:latest
     steps:
-      - name: Install dependencies
-        run: |
-          apt-get update && apt-get install -y curl ca-certificates git jq
-
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-
-      - name: Install tools
-        run: |
-          # kubectl
-          curl -fsSL -o /usr/local/bin/kubectl \
-            "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x /usr/local/bin/kubectl
-
-          # argocd CLI
-          curl -fsSL -o /usr/local/bin/argocd \
-            https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-          chmod +x /usr/local/bin/argocd
-
-          # argocd-diff-preview
-          curl -fsSL -o /tmp/argocd-diff-preview.tar.gz \
-            https://github.com/dag-andersen/argocd-diff-preview/releases/download/v0.1.26/argocd-diff-preview-Linux-x86_64.tar.gz
-          tar -xzf /tmp/argocd-diff-preview.tar.gz -C /usr/local/bin
-          chmod +x /usr/local/bin/argocd-diff-preview
 
       - name: Run argocd-diff-preview
         env:
@@ -87,7 +65,6 @@ jobs:
 
           ${CONTENT}"
 
-          # Post or update PR comment
           gh pr comment "$PR_NUMBER" \
             --repo "$GH_REPO" \
             --body "$BODY" \
