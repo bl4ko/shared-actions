@@ -52,7 +52,7 @@ jobs:
             | grep -E '^[a-z]' \
             | grep -vE '^\s*#' \
             | grep '/' \
-            | sort -u)
+            | sort -u || true)
 
           if [ -z "$IMAGES" ]; then
             echo "No image references found in changed files."
@@ -90,6 +90,10 @@ jobs:
               continue
             fi
 
+            FIXABLE_LINE=$(grep 'vulnerabilities can be fixed' "$OUTPUT_FILE" || true)
+            FIXABLE_COUNT=$(echo "$FIXABLE_LINE" | grep -oE '^[0-9]+' || echo "0")
+            FIXABLE_COUNT=${FIXABLE_COUNT:-0}
+
             get_count() {
               local count
               count=$(echo "$2" | grep -o "[0-9]* $1" | awk '{print $1}')
@@ -101,6 +105,12 @@ jobs:
             MEDIUM=$(get_count "Medium" "$SUMMARY_LINE")
             LOW=$(get_count "Low" "$SUMMARY_LINE")
 
+            if [ "$FIXABLE_COUNT" -eq 0 ]; then
+              echo "::notice::$img has vulnerabilities (Critical=$CRITICAL High=$HIGH Medium=$MEDIUM Low=$LOW) but none are fixable — skipping."
+              rm -f "$OUTPUT_FILE"
+              continue
+            fi
+
             SHOULD_FAIL=0
             case "$FAIL_THRESHOLD" in
               low) if (( CRITICAL > 0 || HIGH > 0 || MEDIUM > 0 || LOW > 0 )); then SHOULD_FAIL=1; fi ;;
@@ -110,7 +120,7 @@ jobs:
             esac
 
             if [ "$SHOULD_FAIL" -eq 1 ]; then
-              echo "::warning::$img has ${FAIL_THRESHOLD}+ severity vulnerabilities (Critical=$CRITICAL High=$HIGH Medium=$MEDIUM Low=$LOW)"
+              echo "::warning::$img has ${FAIL_THRESHOLD}+ severity vulnerabilities (Critical=$CRITICAL High=$HIGH Medium=$MEDIUM Low=$LOW) with $FIXABLE_COUNT fixable"
               OVERALL_FAIL=1
             fi
 
