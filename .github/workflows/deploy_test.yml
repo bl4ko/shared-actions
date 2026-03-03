@@ -1,4 +1,4 @@
-name: Test deployment in temporary namespace
+name: ArgoCD deploy test on CI cluster
 on:
   workflow_call:
     inputs:
@@ -6,11 +6,11 @@ on:
         required: false
         type: string
         default: "ubuntu-latest"
-      namespace:
-        description: "Namespace to deploy test workloads into"
+      sync-timeout:
+        description: "Timeout in seconds for ArgoCD app sync"
         required: false
-        type: string
-        default: "ci-test"
+        type: number
+        default: 300
 
 permissions:
   contents: read
@@ -26,7 +26,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Detect changed app directories
+      - name: Detect changed apps
         id: detect
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -40,134 +40,162 @@ jobs:
 
           git config --global --add safe.directory "$PWD"
 
-          # Find changed resource directories that have a kustomization file
-          CHANGED_DIRS=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- '*/resources/*' \
-            | sed 's|/[^/]*$||' \
-            | sort -u)
+          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA")
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
 
-          APP_DIRS=""
-          for dir in $CHANGED_DIRS; do
-            if [ -f "$dir/kustomization.yaml" ] || [ -f "$dir/kustomization.yml" ]; then
-              APP_DIRS="$APP_DIRS $dir"
+          APPS=""
+          for app_file in $(find . -path '*/apps/*.yml' -o -path '*/apps/*.yaml' | grep -v kustomization | sort); do
+            REL_PATH=$(echo "$app_file" | sed 's|^\./||')
+
+            # Match if the app file itself changed
+            if echo "$CHANGED_FILES" | grep -qx "$REL_PATH"; then
+              APPS="$APPS $app_file"
+              echo "Matched app: $app_file (app file changed)"
+              continue
             fi
+
+            # Match if any resource path referenced by this app changed
+            APP_PATHS=$(grep -oE '[a-z]+/resources/[a-zA-Z0-9_-]+' "$app_file" 2>/dev/null | sort -u)
+            for path in $APP_PATHS; do
+              if echo "$CHANGED_FILES" | grep -q "^${path}/"; then
+                if ! echo "$APPS" | grep -q "$app_file"; then
+                  APPS="$APPS $app_file"
+                  echo "Matched app: $app_file via path: $path"
+                fi
+              fi
+            done
           done
 
-          APP_DIRS=$(echo "$APP_DIRS" | xargs)
-          echo "Detected app directories: $APP_DIRS"
-          echo "apps=$APP_DIRS" >> "$GITHUB_OUTPUT"
+          APPS=$(echo "$APPS" | xargs)
+          echo "Detected apps: $APPS"
+          echo "apps=$APPS" >> "$GITHUB_OUTPUT"
 
-      - name: Cleanup stale resources
+      - name: Create temporary ArgoCD Applications
+        id: create
         if: steps.detect.outputs.apps != ''
         env:
-          NS: ${{ inputs.namespace }}
+          APPS: ${{ steps.detect.outputs.apps }}
+          PR_BRANCH: ${{ github.head_ref }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          echo "Cleaning up stale resources in $NS before deploying..."
-          kubectl delete deployments,services,configmaps,replicasets,pods --all -n "$NS" --timeout=60s --ignore-not-found || true
+          CREATED_APPS=""
 
-      - name: Build and deploy test workloads
-        id: deploy
-        if: steps.detect.outputs.apps != ''
+          for app_file in $APPS; do
+            APP_NAME=$(yq '.metadata.name' "$app_file")
+            TEMP_NAME="ci-pr${PR_NUMBER}-${APP_NAME}"
+            echo ""
+            echo "=== Creating temp app: $TEMP_NAME (from $app_file) ==="
+
+            # Transform: rename, set ci-test project, disable selfHeal
+            yq eval "
+              .metadata.name = \"${TEMP_NAME}\" |
+              .metadata.namespace = \"argocd\" |
+              .spec.project = \"ci-test\" |
+              .spec.syncPolicy.automated = {\"prune\": true, \"selfHeal\": false} |
+              .spec.revisionHistoryLimit = 1
+            " "$app_file" > "/tmp/${TEMP_NAME}.yaml"
+
+            # Point git sources referencing this repo to the PR branch
+            yq eval -i "
+              (.spec.sources[] | select(.repoURL | test(\"gitops-home\")) | .targetRevision) = \"${PR_BRANCH}\"
+            " "/tmp/${TEMP_NAME}.yaml" 2>/dev/null || true
+
+            # Handle single source pattern
+            HAS_SINGLE=$(yq '.spec.source.repoURL // ""' "/tmp/${TEMP_NAME}.yaml" 2>/dev/null)
+            if echo "$HAS_SINGLE" | grep -q "gitops-home"; then
+              yq eval -i ".spec.source.targetRevision = \"${PR_BRANCH}\"" "/tmp/${TEMP_NAME}.yaml"
+            fi
+
+            echo "--- Generated manifest ---"
+            cat "/tmp/${TEMP_NAME}.yaml"
+            echo "---"
+
+            kubectl apply -f "/tmp/${TEMP_NAME}.yaml" -n argocd || {
+              echo "::error::Failed to create ArgoCD app $TEMP_NAME"
+              continue
+            }
+
+            CREATED_APPS="$CREATED_APPS $TEMP_NAME"
+          done
+
+          CREATED_APPS=$(echo "$CREATED_APPS" | xargs)
+          echo "Created apps: $CREATED_APPS"
+          echo "created_apps=$CREATED_APPS" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for ArgoCD sync
+        if: steps.create.outputs.created_apps != ''
         env:
-          NS: ${{ inputs.namespace }}
-          APP_DIRS: ${{ steps.detect.outputs.apps }}
+          CREATED_APPS: ${{ steps.create.outputs.created_apps }}
+          SYNC_TIMEOUT: ${{ inputs.sync-timeout }}
         run: |
           FAILED=0
-          HAS_DEPLOYMENTS=false
+          DEADLINE=$(($(date +%s) + SYNC_TIMEOUT))
 
-          for dir in $APP_DIRS; do
+          for app in $CREATED_APPS; do
             echo ""
-            echo "=== Processing: $dir ==="
+            echo "=== Waiting for $app ==="
 
-            RENDERED=$(mktemp)
-            kustomize build "$dir" > "$RENDERED" 2>&1 || {
-              echo "::warning::kustomize build failed for $dir, skipping"
-              rm -f "$RENDERED"
-              continue
-            }
+            while true; do
+              NOW=$(date +%s)
+              if [ "$NOW" -ge "$DEADLINE" ]; then
+                echo "::error::Timeout waiting for $app to sync"
+                kubectl get app "$app" -n argocd -o yaml 2>/dev/null | head -80
+                FAILED=1
+                break
+              fi
 
-            # Filter to only safe-to-test resource kinds
-            FILTERED=$(mktemp)
-            awk '
-              BEGIN { buf=""; kind="" }
-              /^---/ {
-                if (kind == "Deployment" || kind == "Service" || kind == "ConfigMap") {
-                  printf "%s", buf
-                }
-                buf="---\n"; kind=""
-                next
-              }
-              /^kind:/ { kind=$2 }
-              { buf = buf $0 "\n" }
-              END {
-                if (kind == "Deployment" || kind == "Service" || kind == "ConfigMap") {
-                  printf "%s", buf
-                }
-              }
-            ' "$RENDERED" > "$FILTERED"
+              SYNC=$(kubectl get app "$app" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null)
+              HEALTH=$(kubectl get app "$app" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null)
+              PHASE=$(kubectl get app "$app" -n argocd -o jsonpath='{.status.operationState.phase}' 2>/dev/null)
+              MSG=$(kubectl get app "$app" -n argocd -o jsonpath='{.status.operationState.message}' 2>/dev/null)
 
-            if [ ! -s "$FILTERED" ]; then
-              echo "No deployable resources (Deployment/Service/ConfigMap) in $dir, skipping."
-              rm -f "$RENDERED" "$FILTERED"
-              continue
-            fi
+              echo "  sync=$SYNC health=$HEALTH phase=$PHASE"
 
-            # Check if any Deployments are in the filtered output
-            if grep -q '^kind: Deployment' "$FILTERED"; then
-              HAS_DEPLOYMENTS=true
-            fi
+              # Sync operation failed (template error, invalid manifests, etc.)
+              if [ "$PHASE" = "Failed" ] || [ "$PHASE" = "Error" ]; then
+                echo "::error::App $app sync failed: $MSG"
+                FAILED=1
+                break
+              fi
 
-            # Patch: replace PVC claimName volume sources with emptyDir
-            PATCHED=$(mktemp)
-            sed '/persistentVolumeClaim:/,/claimName:/{
-              s/persistentVolumeClaim:/emptyDir: {}/
-              /claimName:/d
-            }' "$FILTERED" > "$PATCHED"
+              # Sync succeeded — accept any health (CI uses dummy secrets)
+              if [ "$SYNC" = "Synced" ] && [ "$PHASE" = "Succeeded" ]; then
+                echo "App $app synced successfully (health: $HEALTH)"
+                break
+              fi
 
-            echo "Applying to namespace $NS..."
-            kubectl apply -f "$PATCHED" -n "$NS" --timeout=60s || {
-              echo "::error::kubectl apply failed for $dir"
-              FAILED=1
-            }
-
-            rm -f "$RENDERED" "$FILTERED" "$PATCHED"
+              sleep 10
+            done
           done
 
-          echo "has_deployments=$HAS_DEPLOYMENTS" >> "$GITHUB_OUTPUT"
-
           if [ "$FAILED" -eq 1 ]; then
+            echo ""
+            echo "=== Summary ==="
+            for app in $CREATED_APPS; do
+              SYNC=$(kubectl get app "$app" -n argocd -o jsonpath='{.status.sync.status}' 2>/dev/null)
+              HEALTH=$(kubectl get app "$app" -n argocd -o jsonpath='{.status.health.status}' 2>/dev/null)
+              PHASE=$(kubectl get app "$app" -n argocd -o jsonpath='{.status.operationState.phase}' 2>/dev/null)
+              echo "  $app: sync=$SYNC health=$HEALTH phase=$PHASE"
+            done
             exit 1
           fi
 
-      - name: Wait for pods to become ready
-        if: steps.deploy.outputs.has_deployments == 'true'
+          echo "All apps synced successfully."
+
+      - name: Cleanup temporary apps
+        if: always() && steps.create.outputs.created_apps != ''
         env:
-          NS: ${{ inputs.namespace }}
+          CREATED_APPS: ${{ steps.create.outputs.created_apps }}
         run: |
-          echo "Waiting for pods in $NS to become Ready..."
-          sleep 5
-
-          POD_COUNT=$(kubectl get pods -n "$NS" --no-headers 2>/dev/null | wc -l)
-          if [ "$POD_COUNT" -eq 0 ]; then
-            echo "No pods found in $NS, nothing to wait for."
-            exit 0
-          fi
-
-          kubectl wait --for=condition=Ready pods --all -n "$NS" --timeout=120s || {
-            echo "::error::Pods did not become Ready within 120s"
-            echo "--- Pod status ---"
-            kubectl get pods -n "$NS" -o wide
-            echo "--- Pod events ---"
-            kubectl get events -n "$NS" --sort-by='.lastTimestamp' | tail -20
-            exit 1
-          }
-
-          echo "All pods are Ready."
-
-      - name: Cleanup test namespace
-        if: always() && steps.detect.outputs.apps != ''
-        env:
-          NS: ${{ inputs.namespace }}
-        run: |
-          echo "Cleaning up resources in $NS..."
-          kubectl delete deployments,services,configmaps,replicasets,pods --all -n "$NS" --timeout=60s --ignore-not-found || true
+          echo "Cleaning up temporary ArgoCD apps..."
+          for app in $CREATED_APPS; do
+            echo "Deleting $app..."
+            kubectl delete app "$app" -n argocd --timeout=120s 2>/dev/null || {
+              echo "Delete timed out for $app, removing finalizers..."
+              kubectl patch app "$app" -n argocd --type=json \
+                -p='[{"op":"remove","path":"/metadata/finalizers"}]' 2>/dev/null || true
+              kubectl delete app "$app" -n argocd --ignore-not-found 2>/dev/null || true
+            }
+          done
           echo "Cleanup complete."

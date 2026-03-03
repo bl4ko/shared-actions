@@ -6,6 +6,7 @@ containerfile
 containerregistry
 elif
 esac
+gitops
 kaniko
 kustomize
 lycheeverse
