@@ -56,9 +56,9 @@ jobs:
             fi
 
             # Match if any resource path referenced by this app changed
-            APP_PATHS=$(grep -oE '[a-z]+/resources/[a-zA-Z0-9_-]+' "$app_file" 2>/dev/null | sort -u)
+            APP_PATHS=$(grep -oE '[a-z]+/resources/[a-zA-Z0-9_/-]+' "$app_file" 2>/dev/null | sort -u)
             for path in $APP_PATHS; do
-              if echo "$CHANGED_FILES" | grep -q "^${path}/"; then
+              if echo "$CHANGED_FILES" | grep -q "^${path}"; then
                 if ! echo "$APPS" | grep -q "$app_file"; then
                   APPS="$APPS $app_file"
                   echo "Matched app: $app_file via path: $path"
