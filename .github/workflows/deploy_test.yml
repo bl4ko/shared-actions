@@ -56,13 +56,23 @@ jobs:
           echo "Detected app directories: $APP_DIRS"
           echo "apps=$APP_DIRS" >> "$GITHUB_OUTPUT"
 
+      - name: Cleanup stale resources
+        if: steps.detect.outputs.apps != ''
+        env:
+          NS: ${{ inputs.namespace }}
+        run: |
+          echo "Cleaning up stale resources in $NS before deploying..."
+          kubectl delete deployments,services,configmaps,replicasets,pods --all -n "$NS" --timeout=60s --ignore-not-found || true
+
       - name: Build and deploy test workloads
+        id: deploy
         if: steps.detect.outputs.apps != ''
         env:
           NS: ${{ inputs.namespace }}
           APP_DIRS: ${{ steps.detect.outputs.apps }}
         run: |
           FAILED=0
+          HAS_DEPLOYMENTS=false
 
           for dir in $APP_DIRS; do
             echo ""
@@ -101,6 +111,11 @@ jobs:
               continue
             fi
 
+            # Check if any Deployments are in the filtered output
+            if grep -q '^kind: Deployment' "$FILTERED"; then
+              HAS_DEPLOYMENTS=true
+            fi
+
             # Patch: replace PVC claimName volume sources with emptyDir
             PATCHED=$(mktemp)
             sed '/persistentVolumeClaim:/,/claimName:/{
@@ -117,12 +132,14 @@ jobs:
             rm -f "$RENDERED" "$FILTERED" "$PATCHED"
           done
 
+          echo "has_deployments=$HAS_DEPLOYMENTS" >> "$GITHUB_OUTPUT"
+
           if [ "$FAILED" -eq 1 ]; then
             exit 1
           fi
 
       - name: Wait for pods to become ready
-        if: steps.detect.outputs.apps != ''
+        if: steps.deploy.outputs.has_deployments == 'true'
         env:
           NS: ${{ inputs.namespace }}
         run: |
