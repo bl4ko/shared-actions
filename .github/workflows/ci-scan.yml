@@ -1,0 +1,8 @@
+name: gitleaks
+permissions:
+  contents: read
+on:
+  push:
+jobs:
+  scan:
+    uses: ./.github/workflows/gitleaks.yml
