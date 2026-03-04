@@ -21,7 +21,7 @@ ARG ARGOCD_VERSION=v3.3.2
 # renovate: datasource=github-releases depName=dag-andersen/argocd-diff-preview
 ARG ARGOCD_DIFF_VERSION=v0.1.26
 # renovate: datasource=github-releases depName=cli/cli
-ARG GH_CLI_VERSION=2.72.0
+ARG GH_CLI_VERSION=2.87.3
 # renovate: datasource=github-releases depName=mikefarah/yq
 ARG YQ_VERSION=v4.48.2
 # renovate: datasource=github-releases depName=gitleaks/gitleaks
