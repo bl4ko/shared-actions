@@ -24,6 +24,8 @@ ARG ARGOCD_DIFF_VERSION=v0.1.26
 ARG GH_CLI_VERSION=2.72.0
 # renovate: datasource=github-releases depName=mikefarah/yq
 ARG YQ_VERSION=v4.48.2
+# renovate: datasource=github-releases depName=gitleaks/gitleaks
+ARG GITLEAKS_VERSION=v8.30.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git jq make python3 && \
@@ -67,6 +69,12 @@ RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/
 RUN curl -fsSL -o /usr/local/bin/yq \
       "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${TARGETARCH}" && \
     chmod +x /usr/local/bin/yq
+
+# gitleaks (release uses x64 / arm64)
+RUN GITLEAKS_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x64" || echo "$TARGETARCH") && \
+    GITLEAKS_STRIPPED=$(echo "$GITLEAKS_VERSION" | sed 's/^v//') && \
+    curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_STRIPPED}_linux_${GITLEAKS_ARCH}.tar.gz" \
+      | tar -xz -C /usr/local/bin gitleaks && chmod +x /usr/local/bin/gitleaks
 
 # Kaniko executor (pre-built from Chainguard fork)
 COPY --from=kaniko-builder /tmp/kaniko/out/executor /usr/local/bin/executor

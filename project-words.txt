@@ -6,8 +6,10 @@ containerfile
 containerregistry
 elif
 esac
+gitleaks
 gitops
 mikefarah
+zricethezav
 kaniko
 kustomize
 lycheeverse
