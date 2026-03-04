@@ -52,7 +52,7 @@ jobs:
             | grep -E '^[a-z]' \
             | grep -vE '^\s*#' \
             | grep '/' \
-            | sort -u)
+            | sort -u || true)
 
           if [ -z "$IMAGES" ]; then
             echo "No image references found in changed files."
@@ -67,10 +67,20 @@ jobs:
           for img in $IMAGES; do
             echo ""
             echo "=== Scanning: $img ==="
-            OUTPUT_FILE=$(mktemp)
 
-            osv-scanner scan image "$img" > "$OUTPUT_FILE" 2>&1 || true
+            # Pull image as Docker tarball (crane pull saves OCI/Docker format with manifest.json)
+            TARBALL=$(mktemp --suffix=.tar)
+            if ! crane pull "$img" "$TARBALL" 2>&1; then
+              echo "::error::Failed to pull $img from registry."
+              OVERALL_FAIL=1
+              rm -f "$TARBALL"
+              continue
+            fi
+
+            OUTPUT_FILE=$(mktemp)
+            osv-scanner scan image --archive "$TARBALL" > "$OUTPUT_FILE" 2>&1 || true
             cat "$OUTPUT_FILE"
+            rm -f "$TARBALL"
 
             SUMMARY_LINE=$(grep 'Total .* packages affected by' "$OUTPUT_FILE" || true)
 
@@ -79,6 +89,10 @@ jobs:
               rm -f "$OUTPUT_FILE"
               continue
             fi
+
+            FIXABLE_LINE=$(grep 'vulnerabilities can be fixed' "$OUTPUT_FILE" || true)
+            FIXABLE_COUNT=$(echo "$FIXABLE_LINE" | grep -oE '^[0-9]+' || echo "0")
+            FIXABLE_COUNT=${FIXABLE_COUNT:-0}
 
             get_count() {
               local count
@@ -91,6 +105,12 @@ jobs:
             MEDIUM=$(get_count "Medium" "$SUMMARY_LINE")
             LOW=$(get_count "Low" "$SUMMARY_LINE")
 
+            if [ "$FIXABLE_COUNT" -eq 0 ]; then
+              echo "::notice::$img has vulnerabilities (Critical=$CRITICAL High=$HIGH Medium=$MEDIUM Low=$LOW) but none are fixable — skipping."
+              rm -f "$OUTPUT_FILE"
+              continue
+            fi
+
             SHOULD_FAIL=0
             case "$FAIL_THRESHOLD" in
               low) if (( CRITICAL > 0 || HIGH > 0 || MEDIUM > 0 || LOW > 0 )); then SHOULD_FAIL=1; fi ;;
@@ -100,7 +120,7 @@ jobs:
             esac
 
             if [ "$SHOULD_FAIL" -eq 1 ]; then
-              echo "::warning::$img has ${FAIL_THRESHOLD}+ severity vulnerabilities (Critical=$CRITICAL High=$HIGH Medium=$MEDIUM Low=$LOW)"
+              echo "::warning::$img has ${FAIL_THRESHOLD}+ severity vulnerabilities (Critical=$CRITICAL High=$HIGH Medium=$MEDIUM Low=$LOW) with $FIXABLE_COUNT fixable"
               OVERALL_FAIL=1
             fi
 

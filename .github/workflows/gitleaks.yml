@@ -8,12 +8,16 @@ on:
         required: false
         type: string
         default: "ubuntu-latest"
+      container-image:
+        required: false
+        type: string
+        default: "zricethezav/gitleaks:v8.30.0"
 jobs:
   scan:
     name: gitleaks
     runs-on: ${{ inputs.runs-on }}
     container:
-      image: zricethezav/gitleaks:v8.30.0
+      image: ${{ inputs.container-image }}
     steps:
       - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
