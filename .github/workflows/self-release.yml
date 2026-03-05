@@ -1,0 +1,12 @@
+name: Release
+permissions:
+  contents: read
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  release:
+    uses: ./.github/workflows/release.yml
+    secrets:
+      SVC_TOKEN: ${{ secrets.SVC_TOKEN }}
