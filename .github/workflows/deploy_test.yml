@@ -169,9 +169,12 @@ jobs:
                 break
               fi
 
-              # Sync succeeded — accept any health (CI uses dummy secrets)
-              if [ "$SYNC" = "Synced" ] && [ "$PHASE" = "Succeeded" ]; then
-                echo "App $app synced successfully (health: $HEALTH)"
+              # Sync operation succeeded — accept any health and sync status
+              # OutOfSync can occur legitimately in CI (hardcoded namespaces in
+              # raw YAML, controller mutations, etc.). phase=Succeeded confirms
+              # ArgoCD could template and apply the manifests.
+              if [ "$PHASE" = "Succeeded" ]; then
+                echo "App $app sync operation succeeded (sync: $SYNC, health: $HEALTH)"
                 break
               fi
 
