@@ -80,6 +80,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           CREATED_APPS=""
+          CREATED_NAMESPACES=""
 
           for app_file in $APPS; do
             APP_NAME=$(yq '.metadata.name' "$app_file")
@@ -87,11 +88,16 @@ jobs:
             echo ""
             echo "=== Creating temp app: $TEMP_NAME (from $app_file) ==="
 
-            # Transform: rename, set ci-test project, disable selfHeal
+            # Get original namespace for unique temp namespace
+            ORIG_NS=$(yq '.spec.destination.namespace // "default"' "$app_file")
+            TEMP_NS="ci-pr${PR_NUMBER}-${ORIG_NS}"
+
+            # Transform: rename, set ci-test project, unique namespace, disable selfHeal
             yq eval "
               .metadata.name = \"${TEMP_NAME}\" |
               .metadata.namespace = \"argocd\" |
               .spec.project = \"ci-test\" |
+              .spec.destination.namespace = \"${TEMP_NS}\" |
               .spec.syncPolicy.automated = {\"prune\": true, \"selfHeal\": false} |
               .spec.revisionHistoryLimit = 1
             " "$app_file" > "/tmp/${TEMP_NAME}.yaml"
@@ -117,11 +123,15 @@ jobs:
             }
 
             CREATED_APPS="$CREATED_APPS $TEMP_NAME"
+            CREATED_NAMESPACES="$CREATED_NAMESPACES $TEMP_NS"
           done
 
           CREATED_APPS=$(echo "$CREATED_APPS" | xargs)
+          CREATED_NAMESPACES=$(echo "$CREATED_NAMESPACES" | xargs)
           echo "Created apps: $CREATED_APPS"
+          echo "Created namespaces: $CREATED_NAMESPACES"
           echo "created_apps=$CREATED_APPS" >> "$GITHUB_OUTPUT"
+          echo "created_namespaces=$CREATED_NAMESPACES" >> "$GITHUB_OUTPUT"
 
       - name: Wait for ArgoCD sync
         if: steps.create.outputs.created_apps != ''
@@ -187,6 +197,7 @@ jobs:
         if: always() && steps.create.outputs.created_apps != ''
         env:
           CREATED_APPS: ${{ steps.create.outputs.created_apps }}
+          CREATED_NAMESPACES: ${{ steps.create.outputs.created_namespaces }}
         run: |
           echo "Cleaning up temporary ArgoCD apps..."
           for app in $CREATED_APPS; do
@@ -197,5 +208,10 @@ jobs:
                 -p='[{"op":"remove","path":"/metadata/finalizers"}]' 2>/dev/null || true
               kubectl delete app "$app" -n argocd --ignore-not-found 2>/dev/null || true
             }
+          done
+          echo "Cleaning up temporary namespaces..."
+          for ns in $CREATED_NAMESPACES; do
+            echo "Deleting namespace $ns..."
+            kubectl delete namespace "$ns" --ignore-not-found --timeout=60s 2>/dev/null || true
           done
           echo "Cleanup complete."
