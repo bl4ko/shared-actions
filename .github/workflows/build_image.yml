@@ -71,10 +71,14 @@ jobs:
              PUSH_FLAG="--no-push"
           fi
 
-          CACHE_REPO="$CACHE_REPO_INPUT"
-          if [ -z "$CACHE_REPO" ]; then
-             BASE_IMAGE=$(echo "$FIRST_TAG" | cut -d: -f1)
-             CACHE_REPO="${BASE_IMAGE}/cache"
+          CACHE_FLAGS=""
+          if [ "$PUSH" != "false" ]; then
+             CACHE_REPO="$CACHE_REPO_INPUT"
+             if [ -z "$CACHE_REPO" ]; then
+                BASE_IMAGE=$(echo "$FIRST_TAG" | cut -d: -f1)
+                CACHE_REPO="${BASE_IMAGE}/cache"
+             fi
+             CACHE_FLAGS="--cache=true --cache-repo $CACHE_REPO"
           fi
 
           echo "Running Kaniko Build..."
@@ -84,6 +88,5 @@ jobs:
             --dockerfile "$DOCKERFILE" \
             $DESTINATIONS \
             $PUSH_FLAG \
-            --cache=true \
-            --cache-repo "$CACHE_REPO" \
+            $CACHE_FLAGS \
             --force
