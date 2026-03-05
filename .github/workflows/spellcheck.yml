@@ -18,5 +18,5 @@ jobs:
     container:
       image: ${{ inputs.container-image }}
     steps:
-      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
-      - uses: streetsidesoftware/cspell-action@3294df585d3d639e30f3bc019cb11940b9866e95 # v8
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+      - uses: streetsidesoftware/cspell-action@9cd41bb518a24fefdafd9880cbab8f0ceba04d28 # v8
