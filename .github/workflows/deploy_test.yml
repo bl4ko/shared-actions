@@ -99,6 +99,7 @@ jobs:
               .spec.project = \"ci-test\" |
               .spec.destination.namespace = \"${TEMP_NS}\" |
               .spec.syncPolicy.automated = {\"prune\": true, \"selfHeal\": false} |
+              .spec.syncPolicy.syncOptions += [\"CreateNamespace=true\"] |
               .spec.revisionHistoryLimit = 1
             " "$app_file" > "/tmp/${TEMP_NAME}.yaml"
 
