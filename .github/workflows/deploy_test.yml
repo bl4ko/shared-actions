@@ -48,6 +48,13 @@ jobs:
           for app_file in $(find . -path '*/apps/*.yml' -o -path '*/apps/*.yaml' | grep -v kustomization | sort); do
             REL_PATH=$(echo "$app_file" | sed 's|^\./||')
 
+            # Skip apps with ci/skip-deploy-test annotation
+            SKIP=$(yq '.metadata.annotations["ci/skip-deploy-test"] // ""' "$app_file" 2>/dev/null)
+            if [ "$SKIP" = "true" ]; then
+              echo "Skipping app: $app_file (ci/skip-deploy-test annotation)"
+              continue
+            fi
+
             # Match if the app file itself changed
             if echo "$CHANGED_FILES" | grep -qx "$REL_PATH"; then
               APPS="$APPS $app_file"
