@@ -41,6 +41,7 @@ jobs:
           SCAN_ARGS: ${{ inputs.scan-args }}
           UPLOAD_SARIF: ${{ inputs.upload-sarif }}
         run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           ARGS=$(echo "$SCAN_ARGS" | tr '\n' ' ')
 
           if [ "$UPLOAD_SARIF" = "true" ]; then
