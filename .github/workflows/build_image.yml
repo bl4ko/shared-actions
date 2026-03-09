@@ -36,7 +36,7 @@ jobs:
   build-and-scan:
     runs-on: ${{ inputs.runs-on }}
     container:
-      image: ghcr.io/bl4ko/ci-tools:latest@sha256:12185290d6bbdc2665ed33d65f5d33c2a2eb06166f5bafce40a0bfd33041fa74
+      image: ghcr.io/bl4ko/ci-tools:latest@sha256:db324632d3ed37165161bfb723d8b93c9576257c1abb86af87fb2acbe93ae9c9
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
