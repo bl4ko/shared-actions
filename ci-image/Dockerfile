@@ -1,9 +1,3 @@
-FROM golang:1.26-bookworm@sha256:c7a82e9e2df2fea5d8cb62a16aa6f796d2b2ed81ccad4ddd2bc9f0d22936c3f2 AS kaniko-builder
-
-RUN git clone --depth 1 --branch v1.25.6 \
-      https://github.com/chainguard-forks/kaniko.git /tmp/kaniko && \
-    cd /tmp/kaniko && make out/executor
-
 FROM ubuntu:24.04@sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9
 
 ARG TARGETARCH
@@ -75,11 +69,6 @@ RUN GITLEAKS_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x64" || echo "$TARGETAR
     GITLEAKS_STRIPPED=$(echo "$GITLEAKS_VERSION" | sed 's/^v//') && \
     curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_STRIPPED}_linux_${GITLEAKS_ARCH}.tar.gz" \
       | tar -xz -C /usr/local/bin gitleaks && chmod +x /usr/local/bin/gitleaks
-
-# Kaniko executor (pre-built from Chainguard fork)
-COPY --from=kaniko-builder /tmp/kaniko/out/executor /usr/local/bin/executor
-RUN chmod +x /usr/local/bin/executor && \
-    mkdir -p /kaniko/.docker && chown -R 1001:1001 /kaniko
 
 # Non-root user for hardened ARC workflow pods
 RUN groupadd -g 1001 runner && \

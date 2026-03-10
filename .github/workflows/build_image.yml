@@ -8,7 +8,7 @@ on:
         type: string
         default: .
       file:
-        description: Path to the Dockerfile. (default Dockerfile)
+        description: Path to the Dockerfile relative to context (default Dockerfile)
         required: false
         type: string
         default: Dockerfile
@@ -28,62 +28,54 @@ on:
       runs-on:
         required: false
         type: string
-        default: "ubuntu-latest"
+        default: "bare-metal-builder"
+      platform:
+        description: Target platform (default linux/amd64)
+        required: false
+        type: string
+        default: "linux/amd64"
 permissions:
   contents: read
   packages: write
 jobs:
   build-and-scan:
     runs-on: ${{ inputs.runs-on }}
-    container:
-      image: ghcr.io/bl4ko/ci-tools:latest@sha256:7b626711331c83e0af02f58c60d18ff184f02f48a62fca9f797bfbc7f5b8a76a
     steps:
-      - name: Build and Push with Kaniko
-        env:
-          GH_ACTOR: ${{ github.actor }}
-          GH_TOKEN_VAL: ${{ secrets.GITHUB_TOKEN }}
-          TAGS: ${{ inputs.tags }}
-          PUSH: ${{ inputs.push }}
-          CACHE_REPO_INPUT: ${{ inputs.cache-repo }}
-          REPO: ${{ github.repository }}
-          COMMIT_SHA: ${{ github.sha }}
-          CONTEXT: ${{ inputs.context }}
-          DOCKERFILE: ${{ inputs.file }}
-          GIT_USERNAME: ${{ github.actor }}
-          GIT_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Login to GHCR
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine cache repo
+        id: cache
+        if: inputs.push
         run: |
-          mkdir -p /kaniko/.docker
-          echo "{\"auths\":{\"ghcr.io\":{\"username\":\"$GH_ACTOR\",\"password\":\"$GH_TOKEN_VAL\"}}}" > /kaniko/.docker/config.json
-
-          DESTINATIONS=""
-          CLEAN_TAGS=$(echo "$TAGS" | tr ',' ' ')
-          FIRST_TAG=""
-          for tag in $CLEAN_TAGS; do
-            if [ -z "$FIRST_TAG" ]; then FIRST_TAG=$tag; fi
-            DESTINATIONS="$DESTINATIONS --destination $tag"
-          done
-
-          PUSH_FLAG=""
-          if [ "$PUSH" = "false" ]; then
-             PUSH_FLAG="--no-push"
+          CACHE_REPO="${{ inputs.cache-repo }}"
+          if [ -z "$CACHE_REPO" ]; then
+            FIRST_TAG=$(echo "${{ inputs.tags }}" | tr ',' '\n' | head -1)
+            BASE_IMAGE=$(echo "$FIRST_TAG" | cut -d: -f1)
+            CACHE_REPO="${BASE_IMAGE}/cache"
           fi
+          echo "repo=$CACHE_REPO" >> "$GITHUB_OUTPUT"
 
-          CACHE_FLAGS=""
-          if [ "$PUSH" != "false" ]; then
-             CACHE_REPO="$CACHE_REPO_INPUT"
-             if [ -z "$CACHE_REPO" ]; then
-                BASE_IMAGE=$(echo "$FIRST_TAG" | cut -d: -f1)
-                CACHE_REPO="${BASE_IMAGE}/cache"
-             fi
-             CACHE_FLAGS="--cache=true --cache-repo $CACHE_REPO"
-          fi
-
-          echo "Running Kaniko Build..."
-          /usr/local/bin/executor \
-            --context "git://github.com/${REPO}#${COMMIT_SHA}" \
-            --context-sub-path "$CONTEXT" \
-            --dockerfile "$DOCKERFILE" \
-            $DESTINATIONS \
-            $PUSH_FLAG \
-            $CACHE_FLAGS \
-            --force
+      - name: Build and Push
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.context }}/${{ inputs.file }}
+          push: ${{ inputs.push }}
+          tags: ${{ inputs.tags }}
+          platforms: ${{ inputs.platform }}
+          cache-from: ${{ inputs.push && format('type=registry,ref={0}', steps.cache.outputs.repo) || '' }}
+          cache-to: ${{ inputs.push && format('type=registry,ref={0},mode=max', steps.cache.outputs.repo) || '' }}
