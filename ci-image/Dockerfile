@@ -80,3 +80,8 @@ RUN GITLEAKS_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x64" || echo "$TARGETAR
 COPY --from=kaniko-builder /tmp/kaniko/out/executor /usr/local/bin/executor
 RUN chmod +x /usr/local/bin/executor && \
     mkdir -p /kaniko/.docker && chown -R 1001:1001 /kaniko
+
+# Non-root user for hardened ARC workflow pods
+RUN groupadd -g 1001 runner && \
+    useradd -u 1001 -g 1001 -m -s /bin/bash runner
+USER 1001
