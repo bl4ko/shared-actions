@@ -76,6 +76,6 @@ jobs:
           file: ${{ inputs.context }}/${{ inputs.file }}
           push: ${{ inputs.push }}
           tags: ${{ inputs.tags }}
-          platforms: ${{ inputs.platform }}
+          platforms: ${{ inputs.push && inputs.platform || '' }}
           cache-from: ${{ inputs.push && format('type=registry,ref={0}', steps.cache.outputs.repo) || '' }}
           cache-to: ${{ inputs.push && format('type=registry,ref={0},mode=max', steps.cache.outputs.repo) || '' }}
