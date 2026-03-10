@@ -78,4 +78,5 @@ RUN GITLEAKS_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x64" || echo "$TARGETAR
 
 # Kaniko executor (pre-built from Chainguard fork)
 COPY --from=kaniko-builder /tmp/kaniko/out/executor /usr/local/bin/executor
-RUN chmod +x /usr/local/bin/executor
+RUN chmod +x /usr/local/bin/executor && \
+    mkdir -p /kaniko/.docker && chown -R 1001:1001 /kaniko
