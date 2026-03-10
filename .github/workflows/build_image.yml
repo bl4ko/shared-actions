@@ -38,9 +38,6 @@ jobs:
     container:
       image: ghcr.io/bl4ko/ci-tools:latest@sha256:d80a9ac59ec2e8c3df4707bbada558acaf320f732957ba76d2022ea82b38dcfe
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-
       - name: Build and Push with Kaniko
         env:
           GH_ACTOR: ${{ github.actor }}
