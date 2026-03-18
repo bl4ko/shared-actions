@@ -3,7 +3,7 @@ FROM ubuntu:24.04@sha256:0d39fcc8335d6d74d5502f6df2d30119ff4790ebbb60b364818d511
 ARG TARGETARCH
 
 # renovate: datasource=github-releases depName=google/go-containerregistry
-ARG CRANE_VERSION=v0.21.2
+ARG CRANE_VERSION=v0.21.3
 # renovate: datasource=github-releases depName=google/osv-scanner
 ARG OSV_SCANNER_VERSION=v2.3.3
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
