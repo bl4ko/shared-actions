@@ -19,7 +19,7 @@ ARG GH_CLI_VERSION=2.88.1
 # renovate: datasource=github-releases depName=mikefarah/yq
 ARG YQ_VERSION=v4.52.4
 # renovate: datasource=github-releases depName=gitleaks/gitleaks
-ARG GITLEAKS_VERSION=v8.30.0
+ARG GITLEAKS_VERSION=v8.30.1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git jq make python3 && \
