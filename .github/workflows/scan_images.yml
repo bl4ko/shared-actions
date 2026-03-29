@@ -11,6 +11,11 @@ on:
         required: false
         type: string
         default: "critical"
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
 
 permissions:
   contents: read
@@ -31,6 +36,13 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: crane auth login ghcr.io -u "$GITHUB_ACTOR" -p "$GITHUB_TOKEN"
+
+      - name: Login to Docker Hub
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: crane auth login docker.io -u "$DOCKERHUB_USERNAME" -p "$DOCKERHUB_TOKEN"
 
       - name: Extract and scan image references
         shell: bash
@@ -53,19 +65,49 @@ jobs:
             exit 0
           fi
 
-          IMAGES=$(echo "$CHANGED_FILES" | xargs grep -hE '^\s*(image|value):\s*\S+' 2>/dev/null \
+          # Extract images from HEAD version of changed files
+          HEAD_IMAGES=$(echo "$CHANGED_FILES" | xargs grep -hE '^\s*(image|value):\s*\S+' 2>/dev/null \
             | grep -oE '[a-zA-Z0-9._/-]+:[a-zA-Z0-9._-]+' \
             | grep -E '^[a-z]' \
             | grep -vE '^\s*#' \
             | grep '/' \
             | sort -u || true)
 
-          if [ -z "$IMAGES" ]; then
+          if [ -z "$HEAD_IMAGES" ]; then
             echo "No image references found in changed files."
             exit 0
           fi
 
-          echo "Found image references to scan:"
+          # Extract images from BASE version of the same files to find what already existed
+          BASE_IMAGES=""
+          for f in $CHANGED_FILES; do
+            BASE_IMAGES+=$(git show "$BASE_SHA:$f" 2>/dev/null \
+              | grep -hE '^\s*(image|value):\s*\S+' 2>/dev/null \
+              | grep -oE '[a-zA-Z0-9._/-]+:[a-zA-Z0-9._-]+' \
+              | grep -E '^[a-z]' \
+              | grep -vE '^\s*#' \
+              | grep '/' || true)
+            BASE_IMAGES+=$'\n'
+          done
+          BASE_IMAGES=$(echo "$BASE_IMAGES" | sort -u)
+
+          # Only scan images that are new or changed compared to base
+          IMAGES=""
+          for img in $HEAD_IMAGES; do
+            if echo "$BASE_IMAGES" | grep -qxF "$img"; then
+              echo "Skipping $img (unchanged from base branch)"
+            else
+              IMAGES+="$img"$'\n'
+            fi
+          done
+          IMAGES=$(echo "$IMAGES" | sed '/^$/d' | sort -u)
+
+          if [ -z "$IMAGES" ]; then
+            echo "No new or changed image references to scan."
+            exit 0
+          fi
+
+          echo "Found new/changed image references to scan:"
           echo "$IMAGES"
           echo "---"
 
