@@ -92,10 +92,14 @@ jobs:
           BASE_IMAGES=$(echo "$BASE_IMAGES" | sort -u)
 
           # Only scan images that are new or changed compared to base
+          # Strip @sha256:... digests for comparison so digest pins don't trigger rescans
+          BASE_IMAGES_STRIPPED=$(echo "$BASE_IMAGES" | sed 's/@sha256:[a-f0-9]*//' | sort -u)
+
           IMAGES=""
           for img in $HEAD_IMAGES; do
-            if echo "$BASE_IMAGES" | grep -qxF "$img"; then
-              echo "Skipping $img (unchanged from base branch)"
+            img_stripped=$(echo "$img" | sed 's/@sha256:[a-f0-9]*//')
+            if echo "$BASE_IMAGES_STRIPPED" | grep -qxF "$img_stripped"; then
+              echo "Skipping $img (same image:tag exists on base branch)"
             else
               IMAGES+="$img"$'\n'
             fi
