@@ -10,6 +10,11 @@ on:
         required: false
         type: boolean
         default: true
+      fail-on-severity:
+        required: false
+        type: string
+        description: "Minimum severity to fail on (critical, high, medium, low). Empty means fail on any."
+        default: ""
       scan-args:
         required: false
         type: string
@@ -40,9 +45,14 @@ jobs:
         env:
           SCAN_ARGS: ${{ inputs.scan-args }}
           UPLOAD_SARIF: ${{ inputs.upload-sarif }}
+          FAIL_SEVERITY: ${{ inputs.fail-on-severity }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           ARGS=$(echo "$SCAN_ARGS" | tr '\n' ' ')
+
+          if [ -n "$FAIL_SEVERITY" ]; then
+            ARGS="$ARGS --fail-on-severity $FAIL_SEVERITY"
+          fi
 
           if [ "$UPLOAD_SARIF" = "true" ]; then
             echo "Running osv-scanner with SARIF output..."
