@@ -9,4 +9,5 @@ jobs:
   release:
     uses: ./.github/workflows/release.yml
     secrets:
-      SVC_TOKEN: ${{ secrets.SVC_TOKEN }}
+      APP_ID: ${{ secrets.APP_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
