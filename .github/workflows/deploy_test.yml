@@ -19,7 +19,7 @@ jobs:
   deploy-test:
     runs-on: ${{ inputs.runs-on }}
     container:
-      image: ghcr.io/bl4ko/ci-tools:latest@sha256:c39a933e7e9fe2590dfef340dd896f298c59692b103ea4c9bfe375ae4c3e4ded
+      image: ghcr.io/bl4ko/ci-tools:latest@sha256:7cf6536c5859bf854b0a22d0502c3180e158b5a502b558e2a4d089bac542c639
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
