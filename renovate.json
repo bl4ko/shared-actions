@@ -1,6 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "baseBranchPatterns": ["main"],
+  "baseBranchPatterns": [
+    "main"
+  ],
   "extends": [
     "config:recommended",
     "docker:pinDigests",
@@ -14,7 +16,10 @@
     {
       "customType": "regex",
       "description": "Update _VERSION ARGs in Dockerfile via renovate comments",
-      "fileMatch": ["(^|/|\\.)Dockerfile$", "(^|/)Dockerfile\\.[^/]*$"],
+      "fileMatch": [
+        "(^|/|\\.)Dockerfile$",
+        "(^|/)Dockerfile\\.[^/]*$"
+      ],
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+extractVersion=(?<extractVersion>\\S+))?\\s+ARG\\s+\\w+=(?<currentValue>\\S+)"
       ]
@@ -22,16 +27,25 @@
   ],
   "packageRules": [
     {
-      "matchUpdateTypes": ["minor", "patch", "pin", "pinDigest", "digest"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "pinDigest",
+        "digest"
+      ],
       "automerge": true
     },
     {
-      "matchManagers": ["github-actions"],
+      "matchManagers": [
+        "github-actions"
+      ],
       "automerge": true,
       "groupName": "github actions"
     }
   ],
   "prHourlyLimit": 0,
   "platformAutomerge": true,
-  "timezone": "Europe/Ljubljana"
+  "timezone": "Europe/Ljubljana",
+  "minimumReleaseAge": "3 days"
 }
