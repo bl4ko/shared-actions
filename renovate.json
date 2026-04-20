@@ -42,6 +42,15 @@
       ],
       "automerge": true,
       "groupName": "github actions"
+    },
+    {
+      "matchManagers": [
+        "pre-commit"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "automerge": true
     }
   ],
   "prHourlyLimit": 0,
