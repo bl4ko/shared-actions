@@ -15,7 +15,7 @@ jobs:
   validate:
     runs-on: ${{ inputs.runs-on }}
     container:
-      image: ghcr.io/bl4ko/ci-tools:latest@sha256:90896cd7413514797da35aa232bd0d3822602636a96bfb066e06cc8b9c2724f3
+      image: ghcr.io/bl4ko/ci-tools:latest@sha256:073f6a4bbc2d65537901dab80d992aabe5b3b6bfee35e704268c2a1bbf8d6538
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
