@@ -16,6 +16,9 @@ on:
         required: false
       DOCKERHUB_TOKEN:
         required: false
+      GHCR_TOKEN:
+        required: false
+        description: "PAT with read:packages for private GHCR images"
 
 permissions:
   contents: read
@@ -34,8 +37,8 @@ jobs:
 
       - name: Login to GHCR
         env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: crane auth login ghcr.io -u "$GITHUB_ACTOR" -p "$GITHUB_TOKEN"
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || github.token }}
+        run: crane auth login ghcr.io -u "$GITHUB_ACTOR" -p "$GHCR_TOKEN"
 
       - name: Login to Docker Hub
         env:
