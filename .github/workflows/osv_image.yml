@@ -24,51 +24,39 @@ on:
 
 permissions:
   contents: read
-  packages: write
+
+env:
+  # renovate: datasource=github-releases depName=google/osv-scanner
+  OSV_SCANNER_VERSION: v2.3.8
 
 jobs:
   build-and-scan:
     runs-on: ${{ inputs.runs-on }}
-    container:
-      image: ghcr.io/bl4ko/ci-tools:latest@sha256:44d12fd3f0f0db392662817ccf4af0c403f1288a4133ecc53d79592bacc28bb5
-      # Kaniko needs root: it writes /kaniko/.docker and extracts image
-      # layers into the container filesystem. ci-tools defaults to UID 1001.
-      options: --user 0
     steps:
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - name: Build and Push Image (Kaniko)
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4
+
+      - name: Build image
         id: build
         env:
-          REPO_OWNER: ${{ github.repository_owner }}
           IMAGE_TAG: ${{ inputs.image-tag }}
-          RUN_ID: ${{ github.run_id }}
-          GH_ACTOR: ${{ github.actor }}
-          GH_TOKEN_VAL: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          COMMIT_SHA: ${{ github.sha }}
           CONTAINERFILE: ${{ inputs.containerfile }}
-          GIT_USERNAME: ${{ github.actor }}
-          GIT_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          OWNER_LC=$(echo "$REPO_OWNER" | tr '[:upper:]' '[:lower:]')
-          IMAGE_NAME="ghcr.io/$OWNER_LC/osv-scan-target:${IMAGE_TAG}-${RUN_ID}"
+          IMAGE_NAME="osv-scan-target:${IMAGE_TAG}"
 
           echo "Building image: $IMAGE_NAME"
-
-          mkdir -p /kaniko/.docker
-          echo "{\"auths\":{\"ghcr.io\":{\"username\":\"$GH_ACTOR\",\"password\":\"$GH_TOKEN_VAL\"}}}" > /kaniko/.docker/config.json
-
-          /usr/local/bin/executor \
-            --context "git://github.com/${REPO}#${COMMIT_SHA}" \
-            --context-sub-path "$(dirname "$CONTAINERFILE")" \
-            --dockerfile "$CONTAINERFILE" \
-            --destination "$IMAGE_NAME" \
-            --cache=true \
-            --force
+          docker build -f "$CONTAINERFILE" -t "$IMAGE_NAME" "$(dirname "$CONTAINERFILE")"
 
           echo "image=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Install OSV-Scanner
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/osv-scanner" \
+            "https://github.com/google/osv-scanner/releases/download/${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64"
+          chmod +x "$RUNNER_TEMP/osv-scanner"
 
       - name: Scan Image
         shell: bash
@@ -80,7 +68,7 @@ jobs:
 
           echo "Scanning image: $IMAGE"
 
-          osv-scanner scan image "$IMAGE" > "$OUTPUT_FILE" || true
+          "$RUNNER_TEMP/osv-scanner" scan image "$IMAGE" > "$OUTPUT_FILE" || true
           cat "$OUTPUT_FILE"
 
           SUMMARY_LINE=$(grep 'Total .* packages affected by' "$OUTPUT_FILE")
