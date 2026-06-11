@@ -71,7 +71,9 @@ jobs:
           "$RUNNER_TEMP/osv-scanner" scan image "$IMAGE" > "$OUTPUT_FILE" || true
           cat "$OUTPUT_FILE"
 
-          SUMMARY_LINE=$(grep 'Total .* packages affected by' "$OUTPUT_FILE")
+          # "package" is singular when only one is affected; grep must not
+          # kill the script under set -e when nothing matches
+          SUMMARY_LINE=$(grep -E 'Total .* packages? affected by' "$OUTPUT_FILE" || true)
 
           if [ -z "$SUMMARY_LINE" ]; then
             echo "No vulnerabilities found."
