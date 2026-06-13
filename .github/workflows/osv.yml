@@ -50,8 +50,17 @@ jobs:
           ARGS=$(echo "$SCAN_ARGS" | tr '\n' ' ')
 
           # JSON output drives the severity/fixability gate below.
+          # Exit 0 = clean, 1 = vulns found; anything else means osv-scanner
+          # could not scan -> fail closed (do NOT let a broken scan pass).
           echo "Running osv-scanner (JSON)..."
-          osv-scanner $ARGS --format json --output osv-results.json || true
+          set +e
+          osv-scanner $ARGS --format json --output osv-results.json
+          code=$?
+          set -e
+          case "$code" in
+            0|1) ;;
+            *) echo "::error::osv-scanner could not scan (exit $code)"; exit "$code" ;;
+          esac
 
           if [ "$UPLOAD_SARIF" = "true" ]; then
             echo "Running osv-scanner (SARIF)..."
@@ -100,7 +109,7 @@ jobs:
           try:
               data = json.load(open(path, encoding="utf-8"))
           except (OSError, ValueError) as e:
-              print(f"No parseable scan results ({e}); treating as clean."); sys.exit(0)
+              print(f"::error::no parseable scan results ({e}); failing closed"); sys.exit(2)
 
           blocking, warnings = [], []
           for res in data.get("results", []):
@@ -113,9 +122,11 @@ jobs:
                       vid = v.get("id", "?")
                       sev = bucket_score(score.get(vid)) or bucket_label(v.get("database_specific", {}).get("severity"))
                       fx = fixable(v)
+                      # Fail closed: a fixable vuln with no parseable severity blocks.
+                      rank = ORDER[thr] if (fx and sev is None) else ORDER.get(sev or '', -1)
                       loc = f" [{src}]" if src else ""
                       line = f"  {sev or 'unknown':<8} {'fixable' if fx else 'no-fix':<7} {name}@{ver} {vid}{loc}"
-                      (blocking if fx and ORDER.get(sev or '', -1) >= ORDER[thr] else warnings).append(line)
+                      (blocking if fx and rank >= ORDER[thr] else warnings).append(line)
 
           if warnings:
               print(f"::group::OSV warnings (not blocking) - {len(warnings)}")
