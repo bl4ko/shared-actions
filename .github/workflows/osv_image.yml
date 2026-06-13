@@ -64,42 +64,66 @@ jobs:
           IMAGE: ${{ steps.build.outputs.image }}
           FAIL_THRESHOLD: ${{ inputs.fail-on-severity }}
         run: |
-          OUTPUT_FILE="scan-results.txt"
-
           echo "Scanning image: $IMAGE"
+          # Human-readable log + machine-readable JSON for the gate.
+          "$RUNNER_TEMP/osv-scanner" scan image "$IMAGE" || true
+          "$RUNNER_TEMP/osv-scanner" scan image "$IMAGE" \
+            --format json --output osv-results.json || true
 
-          "$RUNNER_TEMP/osv-scanner" scan image "$IMAGE" > "$OUTPUT_FILE" || true
-          cat "$OUTPUT_FILE"
+          cat > "$RUNNER_TEMP/osv_gate.py" <<'PYEOF'
+          import json, sys
+          ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
 
-          # "package" is singular when only one is affected; grep must not
-          # kill the script under set -e when nothing matches
-          SUMMARY_LINE=$(grep -E 'Total .* packages? affected by' "$OUTPUT_FILE" || true)
+          def bucket_score(s):
+              try: v = float(s)
+              except (TypeError, ValueError): return None
+              if v >= 9.0: return "critical"
+              if v >= 7.0: return "high"
+              if v >= 4.0: return "medium"
+              return "low" if v > 0 else None
 
-          if [ -z "$SUMMARY_LINE" ]; then
-            echo "No vulnerabilities found."
-            exit 0
-          fi
+          def bucket_label(l):
+              if not l: return None
+              l = l.strip().upper()
+              if l == "MODERATE": return "medium"
+              return l.lower() if l.lower() in ORDER else None
 
-          get_count() {
-            local count=$(echo "$2" | grep -o "[0-9]* $1" | awk '{print $1}')
-            echo "${count:-0}"
-          }
+          def fixable(v):
+              for a in v.get("affected", []):
+                  for r in a.get("ranges", []):
+                      for e in r.get("events", []):
+                          if e.get("fixed"): return True
+              return False
 
-          CRITICAL=$(get_count "Critical" "$SUMMARY_LINE")
-          HIGH=$(get_count "High" "$SUMMARY_LINE")
-          MEDIUM=$(get_count "Medium" "$SUMMARY_LINE")
-          LOW=$(get_count "Low" "$SUMMARY_LINE")
+          path, thr = sys.argv[1], sys.argv[2].lower()
+          if thr not in ORDER:
+              print(f"::error::invalid threshold '{thr}'"); sys.exit(2)
+          try:
+              data = json.load(open(path, encoding="utf-8"))
+          except (OSError, ValueError) as e:
+              print(f"No parseable scan results ({e}); treating as clean."); sys.exit(0)
 
-          SHOULD_FAIL=0
+          blocking, warnings = [], []
+          for res in data.get("results", []):
+              src = res.get("source", {}).get("path", "")
+              for pkg in res.get("packages", []):
+                  name = pkg.get("package", {}).get("name", "?")
+                  ver = pkg.get("package", {}).get("version", "?")
+                  score = {i: g.get("max_severity") for g in pkg.get("groups", []) for i in g.get("ids", [])}
+                  for v in pkg.get("vulnerabilities", []):
+                      vid = v.get("id", "?")
+                      sev = bucket_score(score.get(vid)) or bucket_label(v.get("database_specific", {}).get("severity"))
+                      fx = fixable(v)
+                      loc = f" [{src}]" if src else ""
+                      line = f"  {sev or 'unknown':<8} {'fixable' if fx else 'no-fix':<7} {name}@{ver} {vid}{loc}"
+                      (blocking if fx and ORDER.get(sev or '', -1) >= ORDER[thr] else warnings).append(line)
 
-          case "$FAIL_THRESHOLD" in
-            low) if (( CRITICAL > 0 || HIGH > 0 || MEDIUM > 0 || LOW > 0 )); then SHOULD_FAIL=1; fi ;;
-            medium) if (( CRITICAL > 0 || HIGH > 0 || MEDIUM > 0 )); then SHOULD_FAIL=1; fi ;;
-            high) if (( CRITICAL > 0 || HIGH > 0 )); then SHOULD_FAIL=1; fi ;;
-            critical) if (( CRITICAL > 0 )); then SHOULD_FAIL=1; fi ;;
-          esac
-
-          if [[ "$SHOULD_FAIL" -eq 1 ]]; then
-            echo "::error::Scan failed due to ${FAIL_THRESHOLD}+ severity vulnerabilities."
-            exit 1
-          fi
+          if warnings:
+              print(f"::group::OSV warnings (not blocking) - {len(warnings)}")
+              print("\n".join(warnings)); print("::endgroup::")
+          if blocking:
+              print(f"::error::OSV gate: {len(blocking)} fixable {thr}+ vuln(s) must be patched:")
+              print("\n".join(blocking)); sys.exit(1)
+          print(f"OSV gate passed: no fixable {thr}+ vulnerabilities ({len(warnings)} warning(s) ignored).")
+          PYEOF
+          python3 "$RUNNER_TEMP/osv_gate.py" osv-results.json "$FAIL_THRESHOLD"

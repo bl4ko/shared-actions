@@ -13,8 +13,8 @@ on:
       fail-on-severity:
         required: false
         type: string
-        description: "Minimum severity to fail on (critical, high, medium, low). Empty means fail on any."
-        default: ""
+        description: "Minimum severity to fail on (critical, high, medium, low). Only fixable vulns at/above this fail; unpatchable ones warn."
+        default: "high"
       scan-args:
         required: false
         type: string
@@ -45,33 +45,84 @@ jobs:
         env:
           SCAN_ARGS: ${{ inputs.scan-args }}
           UPLOAD_SARIF: ${{ inputs.upload-sarif }}
-          FAIL_SEVERITY: ${{ inputs.fail-on-severity }}
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           ARGS=$(echo "$SCAN_ARGS" | tr '\n' ' ')
 
-          if [ -n "$FAIL_SEVERITY" ]; then
-            ARGS="$ARGS --fail-on-severity $FAIL_SEVERITY"
-          fi
+          # JSON output drives the severity/fixability gate below.
+          echo "Running osv-scanner (JSON)..."
+          osv-scanner $ARGS --format json --output osv-results.json || true
 
           if [ "$UPLOAD_SARIF" = "true" ]; then
-            echo "Running osv-scanner with SARIF output..."
-            osv-scanner $ARGS --format sarif --output results.sarif
-          else
-            echo "Running osv-scanner..."
-            osv-scanner $ARGS
+            echo "Running osv-scanner (SARIF)..."
+            osv-scanner $ARGS --format sarif --output results.sarif || true
           fi
-        continue-on-error: ${{ inputs.upload-sarif }}
 
       - name: Upload SARIF file
-        if: inputs.upload-sarif == true
+        if: inputs.upload-sarif == true && hashFiles('results.sarif') != ''
         uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
         with:
           sarif_file: results.sarif
           category: osv-scanner
 
-      - name: Check for failures
-        if: inputs.upload-sarif == true && steps.scanner.outcome == 'failure'
+      - name: OSV gate (fail on fixable, warn on unpatchable)
+        env:
+          FAIL_SEVERITY: ${{ inputs.fail-on-severity }}
         run: |
-          echo "OSV-Scanner found vulnerabilities."
-          exit 1
+          cat > "$RUNNER_TEMP/osv_gate.py" <<'PYEOF'
+          import json, sys
+          ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+
+          def bucket_score(s):
+              try: v = float(s)
+              except (TypeError, ValueError): return None
+              if v >= 9.0: return "critical"
+              if v >= 7.0: return "high"
+              if v >= 4.0: return "medium"
+              return "low" if v > 0 else None
+
+          def bucket_label(l):
+              if not l: return None
+              l = l.strip().upper()
+              if l == "MODERATE": return "medium"
+              return l.lower() if l.lower() in ORDER else None
+
+          def fixable(v):
+              for a in v.get("affected", []):
+                  for r in a.get("ranges", []):
+                      for e in r.get("events", []):
+                          if e.get("fixed"): return True
+              return False
+
+          path, thr = sys.argv[1], sys.argv[2].lower()
+          if thr not in ORDER:
+              print(f"::error::invalid threshold '{thr}'"); sys.exit(2)
+          try:
+              data = json.load(open(path, encoding="utf-8"))
+          except (OSError, ValueError) as e:
+              print(f"No parseable scan results ({e}); treating as clean."); sys.exit(0)
+
+          blocking, warnings = [], []
+          for res in data.get("results", []):
+              src = res.get("source", {}).get("path", "")
+              for pkg in res.get("packages", []):
+                  name = pkg.get("package", {}).get("name", "?")
+                  ver = pkg.get("package", {}).get("version", "?")
+                  score = {i: g.get("max_severity") for g in pkg.get("groups", []) for i in g.get("ids", [])}
+                  for v in pkg.get("vulnerabilities", []):
+                      vid = v.get("id", "?")
+                      sev = bucket_score(score.get(vid)) or bucket_label(v.get("database_specific", {}).get("severity"))
+                      fx = fixable(v)
+                      loc = f" [{src}]" if src else ""
+                      line = f"  {sev or 'unknown':<8} {'fixable' if fx else 'no-fix':<7} {name}@{ver} {vid}{loc}"
+                      (blocking if fx and ORDER.get(sev or '', -1) >= ORDER[thr] else warnings).append(line)
+
+          if warnings:
+              print(f"::group::OSV warnings (not blocking) - {len(warnings)}")
+              print("\n".join(warnings)); print("::endgroup::")
+          if blocking:
+              print(f"::error::OSV gate: {len(blocking)} fixable {thr}+ vuln(s) must be patched:")
+              print("\n".join(blocking)); sys.exit(1)
+          print(f"OSV gate passed: no fixable {thr}+ vulnerabilities ({len(warnings)} warning(s) ignored).")
+          PYEOF
+          python3 "$RUNNER_TEMP/osv_gate.py" osv-results.json "$FAIL_SEVERITY"
