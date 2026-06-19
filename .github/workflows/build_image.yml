@@ -34,6 +34,25 @@ on:
         required: false
         type: string
         default: "linux/amd64"
+      harbor-tags:
+        description: Comma-separated Harbor tags to also push (e.g. harbor.xqx.uk/apps/slocar/api:sha,...:latest). Empty = GHCR only.
+        required: false
+        type: string
+        default: ""
+      sign:
+        description: Cosign-sign the pushed Harbor image by digest (needs COSIGN_* secrets)
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      HARBOR_ROBOT_USER:
+        required: false
+      HARBOR_ROBOT_TOKEN:
+        required: false
+      COSIGN_PRIVATE_KEY:
+        required: false
+      COSIGN_PASSWORD:
+        required: false
 permissions:
   contents: read
   packages: write
@@ -57,6 +76,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Login to Harbor
+        if: inputs.push && inputs.harbor-tags != ''
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: harbor.xqx.uk
+          username: ${{ secrets.HARBOR_ROBOT_USER }}
+          password: ${{ secrets.HARBOR_ROBOT_TOKEN }}
+
       - name: Determine cache repo
         id: cache
         if: inputs.push
@@ -70,12 +97,32 @@ jobs:
           echo "repo=$CACHE_REPO" >> "$GITHUB_OUTPUT"
 
       - name: Build and Push
+        id: build
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
           context: ${{ inputs.context }}
           file: ${{ inputs.context }}/${{ inputs.file }}
           push: ${{ inputs.push }}
-          tags: ${{ inputs.tags }}
+          # GHCR tags always; append Harbor tags (same build, pushed to both) when provided.
+          tags: ${{ inputs.harbor-tags != '' && format('{0},{1}', inputs.tags, inputs.harbor-tags) || inputs.tags }}
           platforms: ${{ inputs.push && inputs.platform || '' }}
           cache-from: ${{ inputs.push && format('type=registry,ref={0}', steps.cache.outputs.repo) || '' }}
           cache-to: ${{ inputs.push && format('type=registry,ref={0},mode=max', steps.cache.outputs.repo) || '' }}
+
+      - name: Install cosign
+        if: inputs.push && inputs.sign && inputs.harbor-tags != ''
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign Harbor images (key-based, by digest)
+        if: inputs.push && inputs.sign && inputs.harbor-tags != ''
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          # Sign each pushed Harbor image by its immutable manifest digest (one sig covers all
+          # tags of that image). Strip the :tag, dedupe, so a name isn't signed twice.
+          echo "${{ inputs.harbor-tags }}" | tr ',' '\n' | sed 's/:[^/]*$//' | sort -u | while read -r name; do
+            [ -z "$name" ] && continue
+            cosign sign --key env://COSIGN_PRIVATE_KEY --yes "${name}@${DIGEST}"
+          done
