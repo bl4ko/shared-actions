@@ -37,6 +37,16 @@
       "automerge": true
     },
     {
+      "description": "Own freshly-built ghcr images rebuild several times a day; the global 3-day minimumReleaseAge clock resets on every digest rebase, deadlocking automerge. Opt them out so digest bumps automerge immediately.",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "ghcr.io/bl4ko/**"
+      ],
+      "minimumReleaseAge": null
+    },
+    {
       "matchManagers": [
         "github-actions"
       ],
