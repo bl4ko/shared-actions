@@ -45,13 +45,7 @@ on:
         type: boolean
         default: false
       buildkit-addr:
-        description: |
-          Address of a remote BuildKit daemon (e.g. tcp://buildkitd.buildkit.svc.cluster.local:1234).
-          When set, the job creates a docker buildx builder using the 'remote' driver backed by this
-          address, and uses mTLS client certs from BUILDKIT_CLIENT_CERT / BUILDKIT_CLIENT_KEY /
-          BUILDKIT_CA_CERT env vars (pass via secrets). Requires the runner to have cluster-internal
-          DNS access (i.e. an in-cluster ARC runner). When empty (default) the standard buildx
-          setup-buildx-action path is used — fully backward compatible.
+        description: "Remote BuildKit daemon address (tcp://...); enables the remote buildx driver over mTLS. Empty = standard local buildx."
         required: false
         type: string
         default: ""
@@ -64,12 +58,6 @@ on:
         required: false
       COSIGN_PASSWORD:
         required: false
-      # mTLS client credentials for the remote BuildKit daemon.
-      # Recommended delivery: mount the buildkit-client-certs K8s Secret into the
-      # runner pod (via values-slocar-runner.yaml volumeMounts) and read the files
-      # directly, rather than storing PEM blobs in GitHub secrets. The three secrets
-      # below are the fallback path for callers that cannot use in-cluster mounts
-      # (e.g. GitHub-hosted runners proxied through a tunnel — not recommended).
       BUILDKIT_CLIENT_CERT:
         required: false
       BUILDKIT_CLIENT_KEY:
@@ -87,8 +75,6 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Set up QEMU
-        # Skipped when using remote buildkit: QEMU is only needed for local
-        # cross-compilation. The remote daemon runs natively on amd64.
         if: inputs.buildkit-addr == ''
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
 
@@ -97,28 +83,18 @@ jobs:
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
       - name: Set up Docker Buildx (remote buildkit)
-        # When buildkit-addr is set we create a named builder using the 'remote'
-        # driver instead of the default docker-container driver. mTLS certs are
-        # written from either:
-        #   (a) in-cluster mount at /home/runner/buildkit-certs/ (preferred, no
-        #       secret needed — runner pod mounts the buildkit-client-certs K8s
-        #       Secret directly via values-slocar-runner.yaml)
-        #   (b) secrets passed as BUILDKIT_CLIENT_CERT / _KEY / _CA_CERT env vars
-        #       (fallback for callers without in-cluster mounts)
         if: inputs.buildkit-addr != ''
         env:
           BUILDKIT_CLIENT_CERT: ${{ secrets.BUILDKIT_CLIENT_CERT }}
           BUILDKIT_CLIENT_KEY: ${{ secrets.BUILDKIT_CLIENT_KEY }}
           BUILDKIT_CA_CERT: ${{ secrets.BUILDKIT_CA_CERT }}
         run: |
-          # Resolve cert paths: prefer in-cluster mount, fall back to secret env vars
           CERT_DIR="/home/runner/buildkit-certs"
           if [ -f "${CERT_DIR}/tls.crt" ]; then
             CLIENT_CERT="${CERT_DIR}/tls.crt"
             CLIENT_KEY="${CERT_DIR}/tls.key"
             CA_CERT="${CERT_DIR}/ca.crt"
           else
-            # Write secrets to temp files
             CERT_DIR="$(mktemp -d)"
             printf '%s' "${BUILDKIT_CLIENT_CERT}" > "${CERT_DIR}/tls.crt"
             printf '%s' "${BUILDKIT_CLIENT_KEY}"  > "${CERT_DIR}/tls.key"
@@ -177,8 +153,6 @@ jobs:
           platforms: ${{ inputs.push && inputs.platform || '' }}
           cache-from: ${{ inputs.push && format('type=registry,ref={0}', steps.cache.outputs.repo) || '' }}
           cache-to: ${{ inputs.push && format('type=registry,ref={0},mode=max', steps.cache.outputs.repo) || '' }}
-          # When remote buildkit is active the named builder is used automatically
-          # because we set --use above; no extra 'builder:' field needed here.
 
       - name: Install cosign
         if: inputs.push && inputs.sign && inputs.harbor-tags != ''
