@@ -44,6 +44,11 @@ on:
         required: false
         type: boolean
         default: false
+      buildkit-addr:
+        description: "Remote BuildKit daemon address (tcp://...); enables the remote buildx driver over mTLS. Empty = standard local buildx."
+        required: false
+        type: string
+        default: ""
     secrets:
       HARBOR_ROBOT_USER:
         required: false
@@ -52,6 +57,12 @@ on:
       COSIGN_PRIVATE_KEY:
         required: false
       COSIGN_PASSWORD:
+        required: false
+      BUILDKIT_CLIENT_CERT:
+        required: false
+      BUILDKIT_CLIENT_KEY:
+        required: false
+      BUILDKIT_CA_CERT:
         required: false
 permissions:
   contents: read
@@ -64,10 +75,44 @@ jobs:
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Set up QEMU
+        if: inputs.buildkit-addr == ''
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
 
-      - name: Set up Docker Buildx
+      - name: Set up Docker Buildx (standard)
+        if: inputs.buildkit-addr == ''
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Set up Docker Buildx (remote buildkit)
+        if: inputs.buildkit-addr != ''
+        env:
+          BUILDKIT_CLIENT_CERT: ${{ secrets.BUILDKIT_CLIENT_CERT }}
+          BUILDKIT_CLIENT_KEY: ${{ secrets.BUILDKIT_CLIENT_KEY }}
+          BUILDKIT_CA_CERT: ${{ secrets.BUILDKIT_CA_CERT }}
+        run: |
+          CERT_DIR="/home/runner/buildkit-certs"
+          if [ -f "${CERT_DIR}/tls.crt" ]; then
+            CLIENT_CERT="${CERT_DIR}/tls.crt"
+            CLIENT_KEY="${CERT_DIR}/tls.key"
+            CA_CERT="${CERT_DIR}/ca.crt"
+          else
+            CERT_DIR="$(mktemp -d)"
+            printf '%s' "${BUILDKIT_CLIENT_CERT}" > "${CERT_DIR}/tls.crt"
+            printf '%s' "${BUILDKIT_CLIENT_KEY}"  > "${CERT_DIR}/tls.key"
+            printf '%s' "${BUILDKIT_CA_CERT}"     > "${CERT_DIR}/ca.crt"
+            chmod 600 "${CERT_DIR}/tls.crt" "${CERT_DIR}/tls.key" "${CERT_DIR}/ca.crt"
+            CLIENT_CERT="${CERT_DIR}/tls.crt"
+            CLIENT_KEY="${CERT_DIR}/tls.key"
+            CA_CERT="${CERT_DIR}/ca.crt"
+          fi
+          docker buildx create \
+            --name remote-buildkit \
+            --driver remote \
+            --driver-opt "cert=${CLIENT_CERT}" \
+            --driver-opt "key=${CLIENT_KEY}" \
+            --driver-opt "cacert=${CA_CERT}" \
+            --use \
+            "${{ inputs.buildkit-addr }}"
+          docker buildx inspect --bootstrap
 
       - name: Login to GHCR
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
