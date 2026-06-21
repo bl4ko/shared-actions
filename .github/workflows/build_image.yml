@@ -49,6 +49,11 @@ on:
         required: false
         type: string
         default: ""
+      job-container:
+        description: "Container image to run the job in (required on ARC kubernetes-mode runners; needs docker+buildx). Empty = run on the host runner."
+        required: false
+        type: string
+        default: ""
     secrets:
       HARBOR_ROBOT_USER:
         required: false
@@ -70,6 +75,7 @@ permissions:
 jobs:
   build-and-scan:
     runs-on: ${{ inputs.runs-on }}
+    container: ${{ inputs.job-container || null }}
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
