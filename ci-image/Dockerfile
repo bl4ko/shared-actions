@@ -20,6 +20,10 @@ ARG GH_CLI_VERSION=2.95.0
 ARG YQ_VERSION=v4.53.3
 # renovate: datasource=github-releases depName=gitleaks/gitleaks
 ARG GITLEAKS_VERSION=v8.30.1
+# renovate: datasource=docker depName=docker
+ARG DOCKER_VERSION=29.6.0
+# renovate: datasource=github-releases depName=docker/buildx
+ARG BUILDX_VERSION=v0.35.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git jq make python3 && \
@@ -69,6 +73,16 @@ RUN GITLEAKS_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x64" || echo "$TARGETAR
     GITLEAKS_STRIPPED=$(echo "$GITLEAKS_VERSION" | sed 's/^v//') && \
     curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_STRIPPED}_linux_${GITLEAKS_ARCH}.tar.gz" \
       | tar -xz -C /usr/local/bin gitleaks && chmod +x /usr/local/bin/gitleaks
+
+# docker CLI (client only) + buildx plugin — remote-buildkit image builds in CI
+RUN DOCKER_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x86_64" || echo "aarch64") && \
+    curl -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_VERSION}.tgz" \
+      | tar -xz -C /usr/local/bin --strip-components=1 docker/docker && \
+    chmod +x /usr/local/bin/docker && \
+    mkdir -p /usr/local/lib/docker/cli-plugins && \
+    curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-buildx \
+      "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-${TARGETARCH}" && \
+    chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
 
 # Non-root user for hardened ARC workflow pods
 RUN groupadd -g 1001 runner && \
