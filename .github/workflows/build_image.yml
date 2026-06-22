@@ -160,10 +160,6 @@ jobs:
           cache-from: ${{ inputs.push && format('type=registry,ref={0}', steps.cache.outputs.repo) || '' }}
           cache-to: ${{ inputs.push && format('type=registry,ref={0},mode=max', steps.cache.outputs.repo) || '' }}
 
-      - name: Install cosign
-        if: inputs.push && inputs.sign && inputs.harbor-tags != ''
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-
       - name: Sign Harbor images (key-based, by digest)
         if: inputs.push && inputs.sign && inputs.harbor-tags != ''
         env:
@@ -171,8 +167,7 @@ jobs:
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          # Sign each pushed Harbor image by its immutable manifest digest (one sig covers all
-          # tags of that image). Strip the :tag, dedupe, so a name isn't signed twice.
+          # sign by digest (one sig per image); strip :tag + dedupe so a name isn't signed twice
           echo "${{ inputs.harbor-tags }}" | tr ',' '\n' | sed 's/:[^/]*$//' | sort -u | while read -r name; do
             [ -z "$name" ] && continue
             cosign sign --key env://COSIGN_PRIVATE_KEY --yes "${name}@${DIGEST}"
