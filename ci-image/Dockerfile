@@ -24,6 +24,8 @@ ARG GITLEAKS_VERSION=v8.30.1
 ARG DOCKER_VERSION=29.6.0
 # renovate: datasource=github-releases depName=docker/buildx
 ARG BUILDX_VERSION=v0.35.0
+# renovate: datasource=github-releases depName=sigstore/cosign
+ARG COSIGN_VERSION=v3.1.1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git jq make python3 && \
@@ -83,6 +85,11 @@ RUN DOCKER_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x86_64" || echo "aarch64"
     curl -fsSL -o /usr/local/lib/docker/cli-plugins/docker-buildx \
       "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-${TARGETARCH}" && \
     chmod +x /usr/local/lib/docker/cli-plugins/docker-buildx
+
+# cosign (image signing in CI)
+RUN curl -fsSL -o /usr/local/bin/cosign \
+      "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-${TARGETARCH}" && \
+    chmod +x /usr/local/bin/cosign
 
 # Non-root user for hardened ARC workflow pods
 RUN groupadd -g 1001 runner && \
