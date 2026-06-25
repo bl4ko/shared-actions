@@ -71,7 +71,7 @@ jobs:
 
           # Extract images from HEAD version of changed files
           HEAD_IMAGES=$(echo "$CHANGED_FILES" | xargs grep -hE '^\s*(image|value):\s*\S+' 2>/dev/null \
-            | grep -oE '[a-zA-Z0-9._/-]+:[a-zA-Z0-9._-]+' \
+            | grep -oE '[a-zA-Z0-9._/-]+:[a-zA-Z0-9._-]+(@sha256:[a-f0-9]{64})?' \
             | grep -E '^[a-z]' \
             | grep -vE '^\s*#' \
             | grep '/' \
