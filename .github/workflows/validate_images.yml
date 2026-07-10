@@ -52,7 +52,7 @@ jobs:
 
           # Extract unique image references from changed files
           IMAGES=$(echo "$CHANGED_FILES" | xargs grep -hE '^\s*(image|value):\s*\S+' 2>/dev/null \
-            | grep -oE '[a-zA-Z0-9._/-]+:[a-zA-Z0-9._-]+' \
+            | grep -oE '[a-zA-Z0-9._/-]+:[a-zA-Z0-9._-]+(@sha256:[a-f0-9]{64})?' \
             | grep -E '^[a-z]' \
             | grep -vE '^\s*#' \
             | grep '/' \
@@ -70,7 +70,7 @@ jobs:
           FAILED=0
           for img in $IMAGES; do
             echo -n "Checking $img ... "
-            if timeout 30 crane manifest "$img" > /dev/null 2>&1; then
+            if timeout 60 crane manifest "$img" > /dev/null 2>&1; then
               echo "OK"
             else
               echo "FAILED"
