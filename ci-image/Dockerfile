@@ -11,7 +11,7 @@ ARG KUBECTL_VERSION=v1.36.2
 # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize extractVersion=kustomize/(?<version>.+)
 ARG KUSTOMIZE_VERSION=v5.8.1
 # renovate: datasource=github-releases depName=argoproj/argo-cd
-ARG ARGOCD_VERSION=v3.4.4
+ARG ARGOCD_VERSION=v3.4.5
 # renovate: datasource=github-releases depName=dag-andersen/argocd-diff-preview
 ARG ARGOCD_DIFF_VERSION=v0.2.11
 # renovate: datasource=github-releases depName=cli/cli
