@@ -147,6 +147,14 @@ jobs:
           fi
           echo "repo=$CACHE_REPO" >> "$GITHUB_OUTPUT"
 
+      - name: Determine GHA cache scope
+        id: gha-cache
+        if: "!inputs.push"
+        run: |
+          FIRST_TAG=$(echo "${{ inputs.tags }}" | tr ',' '\n' | head -1)
+          SCOPE=$(echo "$FIRST_TAG" | cut -d: -f1 | tr '/' '-')
+          echo "scope=$SCOPE" >> "$GITHUB_OUTPUT"
+
       - name: Build and Push
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -154,11 +162,10 @@ jobs:
           context: ${{ inputs.context }}
           file: ${{ inputs.context }}/${{ inputs.file }}
           push: ${{ inputs.push }}
-          # GHCR tags always; append Harbor tags (same build, pushed to both) when provided.
           tags: ${{ inputs.harbor-tags != '' && format('{0},{1}', inputs.tags, inputs.harbor-tags) || inputs.tags }}
           platforms: ${{ inputs.push && inputs.platform || '' }}
-          cache-from: ${{ inputs.push && format('type=registry,ref={0}', steps.cache.outputs.repo) || '' }}
-          cache-to: ${{ inputs.push && format('type=registry,ref={0},mode=max', steps.cache.outputs.repo) || '' }}
+          cache-from: ${{ inputs.push && format('type=registry,ref={0}', steps.cache.outputs.repo) || format('type=gha,scope={0}', steps.gha-cache.outputs.scope) }}
+          cache-to: ${{ inputs.push && format('type=registry,ref={0},mode=max', steps.cache.outputs.repo) || format('type=gha,mode=max,scope={0}', steps.gha-cache.outputs.scope) }}
 
       - name: Sign Harbor images (key-based, by digest)
         if: inputs.push && inputs.sign && inputs.harbor-tags != ''
