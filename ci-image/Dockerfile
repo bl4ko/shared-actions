@@ -23,7 +23,7 @@ ARG GITLEAKS_VERSION=v8.30.1
 # renovate: datasource=docker depName=docker
 ARG DOCKER_VERSION=29.6.2
 # renovate: datasource=github-releases depName=docker/buildx
-ARG BUILDX_VERSION=v0.35.0
+ARG BUILDX_VERSION=v0.36.0
 # renovate: datasource=github-releases depName=sigstore/cosign
 ARG COSIGN_VERSION=v3.1.2
 
