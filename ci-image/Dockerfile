@@ -25,7 +25,7 @@ ARG DOCKER_VERSION=29.7.1
 # renovate: datasource=github-releases depName=docker/buildx
 ARG BUILDX_VERSION=v0.36.1
 # renovate: datasource=github-releases depName=sigstore/cosign
-ARG COSIGN_VERSION=v3.1.2
+ARG COSIGN_VERSION=v3.1.3
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git jq make python3 && \
