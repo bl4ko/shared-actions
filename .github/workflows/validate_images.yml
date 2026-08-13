@@ -10,6 +10,10 @@ on:
       GHCR_TOKEN:
         required: false
         description: "PAT with read:packages for private GHCR images"
+      HARBOR_USERNAME:
+        required: false
+      HARBOR_PASSWORD:
+        required: false
 
 permissions:
   contents: read
@@ -30,6 +34,13 @@ jobs:
         env:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN || github.token }}
         run: crane auth login ghcr.io -u "$GITHUB_ACTOR" -p "$GHCR_TOKEN"
+
+      - name: Login to Harbor
+        env:
+          HARBOR_USERNAME: ${{ secrets.HARBOR_USERNAME }}
+          HARBOR_PASSWORD: ${{ secrets.HARBOR_PASSWORD }}
+        if: env.HARBOR_USERNAME != '' && env.HARBOR_PASSWORD != ''
+        run: crane auth login harbor.xqx.uk -u "$HARBOR_USERNAME" -p "$HARBOR_PASSWORD"
 
       - name: Extract and validate image references
         env:
