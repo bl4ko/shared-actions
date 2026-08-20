@@ -135,9 +135,54 @@ jobs:
             echo "${count:-0}"
           }
 
+          cat > "$RUNNER_TEMP/osv_blocking.py" <<'PYTHON'
+          import json, sys
+
+          ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+
+          def severity(value):
+              try:
+                  score = float(value)
+              except (TypeError, ValueError):
+                  return None
+              if score >= 9:
+                  return "critical"
+              if score >= 7:
+                  return "high"
+              if score >= 4:
+                  return "medium"
+              return "low" if score > 0 else None
+
+          def fixable(vulnerability, ecosystem):
+              return any(
+                  event.get("fixed")
+                  for affected in vulnerability.get("affected", [])
+                  if affected.get("package", {}).get("ecosystem") == ecosystem
+                  for ranges in affected.get("ranges", [])
+                  for event in ranges.get("events", [])
+              )
+
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          threshold = sys.argv[2]
+          blocking = 0
+          for result in data.get("results", []):
+              for package in result.get("packages", []):
+                  ecosystem = package.get("package", {}).get("ecosystem")
+                  scores = {
+                      advisory: severity(group.get("max_severity"))
+                      for group in package.get("groups", [])
+                      for advisory in group.get("ids", [])
+                  }
+                  for vulnerability in package.get("vulnerabilities", []):
+                      rank = ORDER.get(scores.get(vulnerability.get("id")) or "", -1)
+                      if rank >= ORDER[threshold] and fixable(vulnerability, ecosystem):
+                          blocking += 1
+          print(blocking)
+          PYTHON
+
           scan_image() {
             local img="$1"
-            local tarball output summary critical
+            local tarball output
             tarball=$(mktemp --suffix=.tar)
             if ! crane pull "$img" "$tarball" 2>/dev/null; then
               rm -f "$tarball"
@@ -145,17 +190,15 @@ jobs:
               return
             fi
             output=$(mktemp)
-            osv-scanner scan image --archive "$tarball" > "$output" 2>&1 || true
+            osv-scanner scan image --archive "$tarball" --format json --output-file "$output" >/dev/null 2>&1 || true
             rm -f "$tarball"
-            summary=$(grep 'Total .* packages affected by' "$output" || true)
-            if [ -z "$summary" ]; then
+            if ! python3 -m json.tool "$output" >/dev/null 2>&1; then
               rm -f "$output"
-              echo "0"
+              echo "-1"
               return
             fi
-            critical=$(get_count "Critical" "$summary")
+            python3 "$RUNNER_TEMP/osv_blocking.py" "$output" "$FAIL_THRESHOLD"
             rm -f "$output"
-            echo "$critical"
           }
 
           OVERALL_FAIL=0
@@ -172,7 +215,9 @@ jobs:
             fi
 
             OUTPUT_FILE=$(mktemp)
+            JSON_FILE=$(mktemp)
             osv-scanner scan image --archive "$TARBALL" > "$OUTPUT_FILE" 2>&1 || true
+            osv-scanner scan image --archive "$TARBALL" --format json --output-file "$JSON_FILE" >/dev/null 2>&1 || true
             cat "$OUTPUT_FILE"
             rm -f "$TARBALL"
 
@@ -180,13 +225,9 @@ jobs:
 
             if [ -z "$SUMMARY_LINE" ]; then
               echo "No vulnerabilities found for $img."
-              rm -f "$OUTPUT_FILE"
+              rm -f "$OUTPUT_FILE" "$JSON_FILE"
               continue
             fi
-
-            FIXABLE_LINE=$(grep 'vulnerabilities can be fixed' "$OUTPUT_FILE" || true)
-            FIXABLE_COUNT=$(echo "$FIXABLE_LINE" | grep -oE '^[0-9]+' || echo "0")
-            FIXABLE_COUNT=${FIXABLE_COUNT:-0}
 
             CRITICAL=$(get_count "Critical" "$SUMMARY_LINE")
             HIGH=$(get_count "High" "$SUMMARY_LINE")
@@ -194,20 +235,21 @@ jobs:
             LOW=$(get_count "Low" "$SUMMARY_LINE")
             rm -f "$OUTPUT_FILE"
 
-            if [ "$FIXABLE_COUNT" -eq 0 ]; then
+            if ! python3 -m json.tool "$JSON_FILE" >/dev/null 2>&1; then
+              echo "::error::OSV scanner did not produce valid JSON for $img."
+              rm -f "$JSON_FILE"
+              OVERALL_FAIL=1
+              continue
+            fi
+            BLOCKING_COUNT=$(python3 "$RUNNER_TEMP/osv_blocking.py" "$JSON_FILE" "$FAIL_THRESHOLD")
+            rm -f "$JSON_FILE"
+
+            if [ "$BLOCKING_COUNT" -eq 0 ]; then
               echo "::notice::$img has vulnerabilities (Critical=$CRITICAL High=$HIGH Medium=$MEDIUM Low=$LOW) but none are fixable — skipping."
               continue
             fi
 
-            SHOULD_FAIL=0
-            case "$FAIL_THRESHOLD" in
-              low) if (( CRITICAL > 0 || HIGH > 0 || MEDIUM > 0 || LOW > 0 )); then SHOULD_FAIL=1; fi ;;
-              medium) if (( CRITICAL > 0 || HIGH > 0 || MEDIUM > 0 )); then SHOULD_FAIL=1; fi ;;
-              high) if (( CRITICAL > 0 || HIGH > 0 )); then SHOULD_FAIL=1; fi ;;
-              critical) if (( CRITICAL > 0 )); then SHOULD_FAIL=1; fi ;;
-            esac
-
-            if [ "$SHOULD_FAIL" -eq 1 ]; then
+            if [ "$BLOCKING_COUNT" -gt 0 ]; then
               # Check if this is a version bump — find the base image for the same image name
               img_name="${img%%:*}"
               BASE_IMG=$(echo "$BASE_IMAGES" | grep "^${img_name}:" | head -1 || true)
@@ -215,19 +257,19 @@ jobs:
               if [ -n "$BASE_IMG" ]; then
                 echo "Version bump detected: $BASE_IMG → $img"
                 echo "Scanning base image for comparison..."
-                BASE_CRITICAL=$(scan_image "$BASE_IMG")
+                BASE_BLOCKING=$(scan_image "$BASE_IMG")
 
-                if [ "$BASE_CRITICAL" = "-1" ]; then
+                if [ "$BASE_BLOCKING" = "-1" ]; then
                   echo "::notice::Could not pull base image $BASE_IMG for comparison — treating as new image."
-                elif [ "$CRITICAL" -le "$BASE_CRITICAL" ]; then
-                  echo "::notice::$img has $CRITICAL critical vulns (base $BASE_IMG had $BASE_CRITICAL) — not a regression, passing."
+                elif [ "$BLOCKING_COUNT" -le "$BASE_BLOCKING" ]; then
+                  echo "::notice::$img has $BLOCKING_COUNT fixable ${FAIL_THRESHOLD}+ vulnerabilities (base $BASE_IMG had $BASE_BLOCKING) — not a regression, passing."
                   continue
                 else
-                  echo "::warning::$img has $CRITICAL critical vulns (base $BASE_IMG had $BASE_CRITICAL) — regression detected."
+                  echo "::warning::$img has $BLOCKING_COUNT fixable ${FAIL_THRESHOLD}+ vulnerabilities (base $BASE_IMG had $BASE_BLOCKING) — regression detected."
                 fi
               fi
 
-              echo "::warning::$img has ${FAIL_THRESHOLD}+ severity vulnerabilities (Critical=$CRITICAL High=$HIGH Medium=$MEDIUM Low=$LOW) with $FIXABLE_COUNT fixable"
+              echo "::warning::$img has $BLOCKING_COUNT fixable ${FAIL_THRESHOLD}+ vulnerabilities (Critical=$CRITICAL High=$HIGH Medium=$MEDIUM Low=$LOW)"
               OVERALL_FAIL=1
             fi
           done
