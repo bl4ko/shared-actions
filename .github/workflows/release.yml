@@ -17,11 +17,8 @@ jobs:
   release:
     runs-on: ${{ inputs.runs-on }}
     container:
-      image: node:lts-alpine3.23@sha256:244cc2b53f46f9e876304391d17682b0ddae9ac33491f4857e25e35a36ba7995
+      image: node:lts-bookworm@sha256:934240a162082fd8b8a2f90cd5114446443f1eba1c5378f6687167ca405e6584
     steps:
-      - name: Install git
-        run: apk add --no-cache git
-
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
