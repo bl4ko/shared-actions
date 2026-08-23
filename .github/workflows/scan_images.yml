@@ -93,18 +93,12 @@ jobs:
             exit 0
           fi
 
-          # Extract images from BASE version of the same files to find what already existed
-          BASE_IMAGES=""
-          for f in $CHANGED_FILES; do
-            BASE_IMAGES+=$(git show "$BASE_SHA:$f" 2>/dev/null \
-              | grep -hE '^\s*(image|value):\s*\S+' 2>/dev/null \
-              | grep -oE '[a-zA-Z0-9._/-]+:[a-zA-Z0-9._-]+' \
-              | grep -E '^[a-z]' \
-              | grep -vE '^\s*#' \
-              | grep '/' || true)
-            BASE_IMAGES+=$'\n'
-          done
-          BASE_IMAGES=$(echo "$BASE_IMAGES" | sort -u)
+          BASE_IMAGES=$(git grep -hE '^\s*(image|value):\s*\S+' "$BASE_SHA" -- '*.yml' '*.yaml' 2>/dev/null \
+            | grep -oE '[a-zA-Z0-9._/-]+:[a-zA-Z0-9._-]+' \
+            | grep -E '^[a-z]' \
+            | grep -vE '^\s*#' \
+            | grep '/' \
+            | sort -u || true)
 
           # Strip @sha256:... digests for comparison
           BASE_IMAGES_STRIPPED=$(echo "$BASE_IMAGES" | while IFS= read -r line; do echo "${line%%@sha256:*}"; done | sort -u)
