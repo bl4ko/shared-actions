@@ -39,11 +39,6 @@ on:
         required: false
         type: string
         default: ""
-      sign:
-        description: Cosign-sign the pushed Harbor image by digest (needs COSIGN_* secrets)
-        required: false
-        type: boolean
-        default: false
       buildkit-addr:
         description: "Remote BuildKit daemon address (tcp://...); enables the remote buildx driver over mTLS. Empty = standard local buildx."
         required: false
@@ -127,6 +122,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Validate Harbor credentials
+        if: inputs.push && inputs.harbor-tags != ''
+        env:
+          HARBOR_ROBOT_USER: ${{ secrets.HARBOR_ROBOT_USER }}
+          HARBOR_ROBOT_TOKEN: ${{ secrets.HARBOR_ROBOT_TOKEN }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: test -n "$HARBOR_ROBOT_USER" && test -n "$HARBOR_ROBOT_TOKEN" && test -n "$COSIGN_PRIVATE_KEY" && test -n "$COSIGN_PASSWORD"
+
       - name: Login to Harbor
         if: inputs.push && inputs.harbor-tags != ''
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
@@ -166,16 +170,25 @@ jobs:
           platforms: ${{ inputs.push && inputs.platform || '' }}
           cache-from: ${{ inputs.push && format('type=registry,ref={0}', steps.cache.outputs.repo) || format('type=gha,scope={0}', steps.gha-cache.outputs.scope) }}
           cache-to: ${{ inputs.push && format('type=registry,ref={0},mode=max', steps.cache.outputs.repo) || format('type=gha,mode=max,scope={0}', steps.gha-cache.outputs.scope) }}
+          sbom: ${{ inputs.push && inputs.harbor-tags != '' }}
 
-      - name: Sign Harbor images (key-based, by digest)
-        if: inputs.push && inputs.sign && inputs.harbor-tags != ''
+      - name: Sign and verify Harbor images
+        if: inputs.push && inputs.harbor-tags != ''
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          COSIGN_PUBLIC_KEY: |
+            -----BEGIN PUBLIC KEY-----
+            MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE2jMQkDwcWxz7+eX5zk0VMUa0bPXy
+            0J7cTJNJxLhcVq7YCS+W2ufLMOyVEocFBeHt/XifvoBlzjnCBpDee+GVtg==
+            -----END PUBLIC KEY-----
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          # sign by digest (one sig per image); strip :tag + dedupe so a name isn't signed twice
           echo "${{ inputs.harbor-tags }}" | tr ',' '\n' | sed 's/:[^/]*$//' | sort -u | while read -r name; do
             [ -z "$name" ] && continue
-            cosign sign --key env://COSIGN_PRIVATE_KEY --yes "${name}@${DIGEST}"
+            ref="${name}@${DIGEST}"
+            cosign sign --key env://COSIGN_PRIVATE_KEY --tlog-upload=false --yes "$ref"
+            cosign verify --key env://COSIGN_PUBLIC_KEY --insecure-ignore-tlog=true "$ref" >/dev/null
+            docker buildx imagetools inspect "$ref" --format '{{ json .SBOM }}' |
+              jq -e '.. | objects | .spdxVersion? // empty | startswith("SPDX-")' >/dev/null
           done
