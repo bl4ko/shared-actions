@@ -94,20 +94,16 @@ jobs:
           fi
 
           BASE_IMAGES=$(git grep -hE '^\s*(image|value):\s*\S+' "$BASE_SHA" -- '*.yml' '*.yaml' 2>/dev/null \
-            | grep -oE '[a-zA-Z0-9._/-]+:[a-zA-Z0-9._-]+' \
+            | grep -oE '[a-zA-Z0-9._/-]+:[a-zA-Z0-9._-]+(@sha256:[a-f0-9]{64})?' \
             | grep -E '^[a-z]' \
             | grep -vE '^\s*#' \
             | grep '/' \
             | sort -u || true)
 
-          # Strip @sha256:... digests for comparison
-          BASE_IMAGES_STRIPPED=$(echo "$BASE_IMAGES" | while IFS= read -r line; do echo "${line%%@sha256:*}"; done | sort -u)
-
           IMAGES=""
           for img in $HEAD_IMAGES; do
-            img_stripped="${img%%@sha256:*}"
-            if echo "$BASE_IMAGES_STRIPPED" | grep -qxF "$img_stripped"; then
-              echo "Skipping $img (same image:tag exists on base branch)"
+            if echo "$BASE_IMAGES" | grep -qxF "$img"; then
+              echo "Skipping $img (exact reference exists on base branch)"
             else
               IMAGES+="$img"$'\n'
             fi
