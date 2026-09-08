@@ -21,7 +21,7 @@ ARG YQ_VERSION=v4.53.6
 # renovate: datasource=github-releases depName=gitleaks/gitleaks
 ARG GITLEAKS_VERSION=v8.30.1
 # renovate: datasource=docker depName=docker
-ARG DOCKER_VERSION=29.7.2
+ARG DOCKER_VERSION=29.8.0
 # renovate: datasource=github-releases depName=docker/buildx
 ARG BUILDX_VERSION=v0.37.0
 # renovate: datasource=github-releases depName=sigstore/cosign
