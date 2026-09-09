@@ -26,6 +26,8 @@ ARG DOCKER_VERSION=29.8.0
 ARG BUILDX_VERSION=v0.37.0
 # renovate: datasource=github-releases depName=sigstore/cosign
 ARG COSIGN_VERSION=v3.1.3
+# renovate: datasource=github-releases depName=aquasecurity/trivy
+ARG TRIVY_VERSION=v0.74.0
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git jq make python3 && \
@@ -90,6 +92,12 @@ RUN DOCKER_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x86_64" || echo "aarch64"
 RUN curl -fsSL -o /usr/local/bin/cosign \
       "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-${TARGETARCH}" && \
     chmod +x /usr/local/bin/cosign
+
+# trivy
+RUN TRIVY_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "64bit" || echo "ARM64") && \
+    TRIVY_STRIPPED=$(echo "$TRIVY_VERSION" | sed 's/^v//') && \
+    curl -fsSL "https://github.com/aquasecurity/trivy/releases/download/${TRIVY_VERSION}/trivy_${TRIVY_STRIPPED}_Linux-${TRIVY_ARCH}.tar.gz" \
+      | tar -xz -C /usr/local/bin trivy && chmod +x /usr/local/bin/trivy
 
 # Non-root user for hardened ARC workflow pods
 RUN groupadd -g 1001 runner && \
