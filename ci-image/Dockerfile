@@ -20,7 +20,7 @@ ARG GH_CLI_VERSION=2.100.0
 ARG YQ_VERSION=v4.53.6
 # renovate: datasource=github-releases depName=gitleaks/gitleaks
 ARG GITLEAKS_VERSION=v8.30.1
-# renovate: datasource=docker depName=docker
+# renovate: datasource=github-tags depName=docker/cli extractVersion=^v(?<version>.+)$
 ARG DOCKER_VERSION=29.8.0
 # renovate: datasource=github-releases depName=docker/buildx
 ARG BUILDX_VERSION=v0.37.0
