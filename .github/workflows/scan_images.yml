@@ -143,21 +143,30 @@ jobs:
                   return "medium"
               return "low" if score > 0 else None
 
-          def fixable(vulnerability, ecosystem):
-              return any(
-                  event.get("fixed")
-                  for affected in vulnerability.get("affected", [])
-                  if affected.get("package", {}).get("ecosystem") == ecosystem
-                  for ranges in affected.get("ranges", [])
-                  for event in ranges.get("events", [])
-              )
+          def fixable(vulnerability, package):
+              ecosystem = package.get("ecosystem")
+              version = package.get("version")
+              source_mapped = package.get("os_package_name") not in (None, package.get("name"))
+              for affected in vulnerability.get("affected", []):
+                  if affected.get("package", {}).get("ecosystem") != ecosystem:
+                      continue
+                  versions = affected.get("versions", [])
+                  if (versions or source_mapped) and version not in versions:
+                      continue
+                  if any(event.get("fixed") for ranges in affected.get("ranges", []) for event in ranges.get("events", [])):
+                      return True
+              return False
+
+          _sample = {"affected": [{"package": {"ecosystem": "Debian:13"}, "versions": ["1"], "ranges": [{"events": [{"fixed": "2"}]}]}]}
+          assert fixable(_sample, {"name": "pkg", "version": "1", "ecosystem": "Debian:13"})
+          assert not fixable(_sample, {"name": "src", "os_package_name": "bin", "version": "2", "ecosystem": "Debian:13"})
 
           data = json.load(open(sys.argv[1], encoding="utf-8"))
           threshold = sys.argv[2]
           blocking = 0
           for result in data.get("results", []):
               for package in result.get("packages", []):
-                  ecosystem = package.get("package", {}).get("ecosystem")
+                  package_data = package.get("package", {})
                   scores = {
                       advisory: severity(group.get("max_severity"))
                       for group in package.get("groups", [])
@@ -165,7 +174,7 @@ jobs:
                   }
                   for vulnerability in package.get("vulnerabilities", []):
                       rank = ORDER.get(scores.get(vulnerability.get("id")) or "", -1)
-                      if rank >= ORDER[threshold] and fixable(vulnerability, ecosystem):
+                      if rank >= ORDER[threshold] and fixable(vulnerability, package_data):
                           blocking += 1
           print(blocking)
           PYTHON
