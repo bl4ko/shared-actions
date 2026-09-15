@@ -35,7 +35,7 @@ jobs:
   scan-pr:
     runs-on: ${{ inputs.runs-on }}
     container:
-      image: ghcr.io/bl4ko/ci-tools:latest@sha256:7a3f5f5c105ae0a25dcc28d118f220cf28cb99a84ea2074fe8cea0fa5b5f52e8
+      image: ghcr.io/bl4ko/ci-tools:latest@sha256:4366a3d0cb43dbad0230c225991f3bf790c523f82e38909079ce7491c6cabf17
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
