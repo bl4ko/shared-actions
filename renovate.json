@@ -65,6 +65,7 @@
   ],
   "prHourlyLimit": 0,
   "platformAutomerge": true,
+  "rebaseWhen": "conflicted",
   "timezone": "Europe/Ljubljana",
   "minimumReleaseAge": "3 days"
 }
