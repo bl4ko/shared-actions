@@ -5,7 +5,7 @@ ARG TARGETARCH
 # renovate: datasource=github-releases depName=google/go-containerregistry
 ARG CRANE_VERSION=v0.22.1
 # renovate: datasource=github-releases depName=google/osv-scanner
-ARG OSV_SCANNER_VERSION=v2.5.1
+ARG OSV_SCANNER_VERSION=v2.6.0
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
 ARG KUBECTL_VERSION=v1.37.0
 # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize extractVersion=kustomize/(?<version>.+)
