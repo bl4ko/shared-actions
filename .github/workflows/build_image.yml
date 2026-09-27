@@ -184,10 +184,11 @@ jobs:
             -----END PUBLIC KEY-----
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
+          cosign signing-config create --out /tmp/cosign-signing.json
           echo "${{ inputs.harbor-tags }}" | tr ',' '\n' | sed 's/:[^/]*$//' | sort -u | while read -r name; do
             [ -z "$name" ] && continue
             ref="${name}@${DIGEST}"
-            cosign sign --key env://COSIGN_PRIVATE_KEY --tlog-upload=false --yes "$ref"
+            cosign sign --key env://COSIGN_PRIVATE_KEY --signing-config /tmp/cosign-signing.json --yes "$ref"
             cosign verify --key env://COSIGN_PUBLIC_KEY --insecure-ignore-tlog=true "$ref" >/dev/null
             docker buildx imagetools inspect "$ref" --format '{{ json .SBOM }}' |
               jq -e '.. | objects | .spdxVersion? // empty | startswith("SPDX-")' >/dev/null
