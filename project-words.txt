@@ -16,3 +16,7 @@ lycheeverse
 mktemp
 DOCKERHUB
 rescans
+buildkit
+slocar
+startswith
+tlog
