@@ -9,7 +9,7 @@ ARG OSV_SCANNER_VERSION=v2.6.0
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
 ARG KUBECTL_VERSION=v1.37.1
 # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize extractVersion=kustomize/(?<version>.+)
-ARG KUSTOMIZE_VERSION=v5.8.1
+ARG KUSTOMIZE_VERSION=v5.8.2
 # renovate: datasource=github-releases depName=argoproj/argo-cd
 ARG ARGOCD_VERSION=v3.5.3
 # renovate: datasource=github-releases depName=dag-andersen/argocd-diff-preview
