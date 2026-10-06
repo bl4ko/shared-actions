@@ -13,7 +13,7 @@ on:
         type: string
         default: Dockerfile
       tags:
-        description: Comma separated list of tags (name/app:latest,name/app:1.0.0)
+        description: Comma separated list of tags (name/app:latest,name/app:1.0.0); {n} becomes the number of commits that changed context
         required: true
         type: string
       push:
@@ -49,6 +49,13 @@ on:
         required: false
         type: string
         default: ""
+    outputs:
+      tags:
+        description: Tags after {n} substitution
+        value: ${{ jobs.build-and-scan.outputs.tags }}
+      harbor-tags:
+        description: Harbor tags after {n} substitution
+        value: ${{ jobs.build-and-scan.outputs.harbor-tags }}
     secrets:
       HARBOR_ROBOT_USER:
         required: false
@@ -76,9 +83,29 @@ jobs:
       startsWith(github.head_ref || github.ref_name, 'hermes/'))
     runs-on: ${{ inputs.runs-on }}
     container: ${{ inputs.job-container || null }}
+    outputs:
+      tags: ${{ steps.tags.outputs.tags }}
+      harbor-tags: ${{ steps.tags.outputs.harbor-tags }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: ${{ (contains(inputs.tags, '{n}') || contains(inputs.harbor-tags, '{n}')) && 0 || 1 }}
+
+      - name: Resolve tags
+        id: tags
+        shell: bash
+        env:
+          TAGS: ${{ inputs.tags }}
+          HARBOR_TAGS: ${{ inputs.harbor-tags }}
+          CONTEXT: ${{ inputs.context }}
+        run: |
+          git config --global --add safe.directory "$PWD"
+          n=$(git rev-list --count HEAD -- "$CONTEXT")
+          {
+            echo "tags=${TAGS//\{n\}/$n}"
+            echo "harbor-tags=${HARBOR_TAGS//\{n\}/$n}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
         if: inputs.buildkit-addr == ''
@@ -148,7 +175,7 @@ jobs:
         id: guard
         if: inputs.push && github.event_name != 'pull_request'
         env:
-          TAGS: ${{ inputs.harbor-tags != '' && format('{0},{1}', inputs.tags, inputs.harbor-tags) || inputs.tags }}
+          TAGS: ${{ steps.tags.outputs.harbor-tags != '' && format('{0},{1}', steps.tags.outputs.tags, steps.tags.outputs.harbor-tags) || steps.tags.outputs.tags }}
           BEFORE: ${{ github.event.before }}
           CONTEXT: ${{ inputs.context }}
         run: |
@@ -178,7 +205,7 @@ jobs:
         run: |
           CACHE_REPO="${{ inputs.cache-repo }}"
           if [ -z "$CACHE_REPO" ]; then
-            FIRST_TAG=$(echo "${{ inputs.tags }}" | tr ',' '\n' | head -1)
+            FIRST_TAG=$(echo "${{ steps.tags.outputs.tags }}" | tr ',' '\n' | head -1)
             BASE_IMAGE=$(echo "$FIRST_TAG" | cut -d: -f1)
             CACHE_REPO="${BASE_IMAGE}/cache"
           fi
@@ -188,7 +215,7 @@ jobs:
         id: gha-cache
         if: "!inputs.push"
         run: |
-          FIRST_TAG=$(echo "${{ inputs.tags }}" | tr ',' '\n' | head -1)
+          FIRST_TAG=$(echo "${{ steps.tags.outputs.tags }}" | tr ',' '\n' | head -1)
           SCOPE=$(echo "$FIRST_TAG" | cut -d: -f1 | tr '/' '-')
           echo "scope=$SCOPE" >> "$GITHUB_OUTPUT"
 
@@ -200,7 +227,7 @@ jobs:
           context: ${{ inputs.context }}
           file: ${{ inputs.context }}/${{ inputs.file }}
           push: ${{ inputs.push }}
-          tags: ${{ inputs.harbor-tags != '' && format('{0},{1}', inputs.tags, inputs.harbor-tags) || inputs.tags }}
+          tags: ${{ steps.tags.outputs.harbor-tags != '' && format('{0},{1}', steps.tags.outputs.tags, steps.tags.outputs.harbor-tags) || steps.tags.outputs.tags }}
           platforms: ${{ inputs.push && inputs.platform || '' }}
           cache-from: ${{ inputs.push && format('type=registry,ref={0}', steps.cache.outputs.repo) || format('type=gha,scope={0}', steps.gha-cache.outputs.scope) }}
           cache-to: ${{ inputs.push && format('type=registry,ref={0},mode=max', steps.cache.outputs.repo) || format('type=gha,mode=max,scope={0}', steps.gha-cache.outputs.scope) }}
@@ -219,7 +246,7 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           cosign signing-config create --out /tmp/cosign-signing.json
-          echo "${{ inputs.harbor-tags }}" | tr ',' '\n' | sed 's/:[^/]*$//' | sort -u | while read -r name; do
+          echo "${{ steps.tags.outputs.harbor-tags }}" | tr ',' '\n' | sed 's/:[^/]*$//' | sort -u | while read -r name; do
             [ -z "$name" ] && continue
             ref="${name}@${DIGEST}"
             cosign sign --key env://COSIGN_PRIVATE_KEY --signing-config /tmp/cosign-signing.json --yes "$ref"
