@@ -144,6 +144,34 @@ jobs:
           username: ${{ secrets.HARBOR_ROBOT_USER }}
           password: ${{ secrets.HARBOR_ROBOT_TOKEN }}
 
+      - name: Guard release tags
+        id: guard
+        if: inputs.push && github.event_name != 'pull_request'
+        env:
+          TAGS: ${{ inputs.harbor-tags != '' && format('{0},{1}', inputs.tags, inputs.harbor-tags) || inputs.tags }}
+          BEFORE: ${{ github.event.before }}
+          CONTEXT: ${{ inputs.context }}
+        run: |
+          existing=""
+          for t in $(echo "$TAGS" | tr ',' ' '); do
+            case "${t##*:}" in latest|daily|main|edge|nightly) continue ;; esac
+            if out=$(docker buildx imagetools inspect "$t" 2>&1); then
+              existing="$existing $t"
+            elif ! echo "$out" | grep -qiE 'not found|manifest unknown|404'; then
+              echo "::error::Cannot check $t: $out"; exit 1
+            fi
+          done
+          [ -z "$existing" ] && { echo "skip=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          changed=true
+          if [ -n "$BEFORE" ] && [ "${BEFORE#0000000}" = "$BEFORE" ] && git fetch -q --depth=1 origin "$BEFORE"; then
+            git diff --quiet "$BEFORE" "$GITHUB_SHA" -- "$CONTEXT" && changed=false
+          fi
+          if [ "$changed" = true ]; then
+            echo "::error::$CONTEXT changed but these tags already exist:$existing. Bump the tag; tags never move."; exit 1
+          fi
+          echo "::notice::$CONTEXT unchanged and tags exist:$existing. Skipping build."
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+
       - name: Determine cache repo
         id: cache
         if: inputs.push
@@ -166,6 +194,7 @@ jobs:
 
       - name: Build and Push
         id: build
+        if: steps.guard.outputs.skip != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ inputs.context }}
@@ -178,7 +207,7 @@ jobs:
           sbom: ${{ inputs.push && inputs.harbor-tags != '' }}
 
       - name: Sign and verify Harbor images
-        if: inputs.push && inputs.harbor-tags != ''
+        if: inputs.push && inputs.harbor-tags != '' && steps.guard.outputs.skip != 'true'
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
