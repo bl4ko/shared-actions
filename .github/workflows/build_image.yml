@@ -90,7 +90,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          fetch-depth: ${{ (contains(inputs.tags, '{n}') || contains(inputs.harbor-tags, '{n}')) && 0 || 1 }}
+          fetch-depth: ${{ (contains(inputs.tags, '{n}') || contains(inputs.harbor-tags, '{n}')) && '0' || '1' }}
 
       - name: Resolve tags
         id: tags
@@ -101,6 +101,9 @@ jobs:
           CONTEXT: ${{ inputs.context }}
         run: |
           git config --global --add safe.directory "$PWD"
+          case "$TAGS$HARBOR_TAGS" in *'{n}'*)
+            [ "$(git rev-parse --is-shallow-repository)" = false ] || { echo "::error::{n} needs full git history"; exit 1; } ;;
+          esac
           n=$(git rev-list --count HEAD -- "$CONTEXT")
           {
             echo "tags=${TAGS//\{n\}/$n}"
