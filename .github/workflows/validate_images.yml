@@ -47,14 +47,14 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          if [ -z "$BASE_SHA" ]; then
-            echo "Not a pull request event, skipping."
-            exit 0
-          fi
-
           git config --global --add safe.directory "$PWD"
 
-          CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- '*.yml' '*.yaml')
+          if [ -z "$BASE_SHA" ]; then
+            PINNED_ONLY=1
+            CHANGED_FILES=$(git ls-files '*.yml' '*.yaml')
+          else
+            CHANGED_FILES=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA" "$HEAD_SHA" -- '*.yml' '*.yaml')
+          fi
 
           if [ -z "$CHANGED_FILES" ]; then
             echo "No YAML files changed."
@@ -68,6 +68,7 @@ jobs:
             | grep -vE '^\s*#' \
             | grep '/' \
             | sort -u)
+          [ -n "${PINNED_ONLY:-}" ] && IMAGES=$(echo "$IMAGES" | grep '@sha256:' || true)
 
           if [ -z "$IMAGES" ]; then
             echo "No image references found in changed files."
