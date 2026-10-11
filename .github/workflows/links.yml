@@ -20,7 +20,7 @@ jobs:
   linkChecker:
     runs-on: ${{ inputs.runs-on || 'ubuntu-latest' }}
     container:
-      image: ghcr.io/bl4ko/ci-tools:latest@sha256:1507d4fec8489e4815878442747494f35912895c35422d4a693c316df0c8a6ce
+      image: ghcr.io/bl4ko/ci-tools:latest@sha256:60247ac3c118b904f018064c27dccbd32f06eb387d7dfbcc09d45237e63f1a8b
     steps:
       - name: Fix composite action paths in container
         run: |
