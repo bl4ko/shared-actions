@@ -13,7 +13,7 @@ ARG KUSTOMIZE_VERSION=v5.8.2
 # renovate: datasource=github-releases depName=argoproj/argo-cd
 ARG ARGOCD_VERSION=v3.5.4
 # renovate: datasource=github-releases depName=dag-andersen/argocd-diff-preview
-ARG ARGOCD_DIFF_VERSION=v0.2.15
+ARG ARGOCD_DIFF_VERSION=v0.2.16
 # renovate: datasource=github-releases depName=cli/cli
 ARG GH_CLI_VERSION=2.102.0
 # renovate: datasource=github-releases depName=mikefarah/yq
