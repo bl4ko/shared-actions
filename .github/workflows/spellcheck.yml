@@ -11,7 +11,7 @@ on:
       container-image:
         required: false
         type: string
-        default: "node:lts-bookworm-slim"
+        default: "ghcr.io/bl4ko/ci-tools:latest@sha256:8d78604e736c446c1fe17fd8b2ee5fd576a132c94a5c979534b728f93984273c"
 jobs:
   spellcheck:
     runs-on: ${{ inputs.runs-on }}
@@ -19,4 +19,83 @@ jobs:
       image: ${{ inputs.container-image }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: streetsidesoftware/cspell-action@6f3c77c1406bc930f944ba97e9801a22e42caf58 # v9
+        with:
+          fetch-depth: 0
+      - name: Select changed files
+        id: files
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          git config --global --add safe.directory "$PWD"
+          list="$(mktemp)"
+          range=""
+          case "$EVENT_NAME" in
+            pull_request) range="$BASE_SHA...$HEAD_SHA" ;;
+            push)
+              if git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null; then
+                range="$BEFORE_SHA..$AFTER_SHA"
+              fi
+              ;;
+          esac
+          if [ -n "$range" ]; then
+            git -c core.quotePath=false diff --name-only --diff-filter=ACMRT "$range" > "$list.raw"
+            sed 's/[][\\*?{}()!+@]/\\&/g' "$list.raw" > "$list"
+          else
+            echo "::notice::No comparable commit range for $EVENT_NAME; checking all files."
+            echo '**' > "$list"
+          fi
+          if [ "$(wc -c < "$list")" -gt 65536 ]; then
+            echo "::notice::Changed file list is too large; checking all files."
+            echo '**' > "$list"
+          fi
+          count="$(sed -n '$=' "$list")"
+          echo "count=${count:-0}" >> "$GITHUB_OUTPUT"
+          delimiter="files_$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+          {
+            echo "files<<$delimiter"
+            cat "$list"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+          echo "Files selected: ${count:-0}"
+      - name: Spellcheck
+        id: spell
+        if: steps.files.outputs.count != '0'
+        uses: streetsidesoftware/cspell-action@6f3c77c1406bc930f944ba97e9801a22e42caf58 # v9
+        with:
+          files: ${{ steps.files.outputs.files }}
+          incremental_files_only: false
+      - name: Prepare coverage guard
+        id: guard-input
+        if: steps.spell.outcome == 'success' && (steps.spell.outputs.number_of_files_checked == '0' || steps.spell.outputs.number_of_files_checked == '')
+        run: |
+          set -eu
+          name="cspell-guard-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          printf 'spelling check guard\n' > "$name.txt"
+          printf '{"ignorePaths":[]}\n' > "$name.json"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+      - name: Coverage guard
+        id: guard
+        if: steps.guard-input.outcome == 'success'
+        uses: streetsidesoftware/cspell-action@6f3c77c1406bc930f944ba97e9801a22e42caf58 # v9
+        with:
+          files: ${{ steps.guard-input.outputs.name }}.txt
+          config: ${{ steps.guard-input.outputs.name }}.json
+          incremental_files_only: false
+          inline: none
+          strict: false
+      - name: Verify coverage
+        if: steps.guard-input.outcome == 'success'
+        env:
+          GUARD_CHECKED: ${{ steps.guard.outputs.number_of_files_checked }}
+          SPELL_CHECKED: ${{ steps.spell.outputs.number_of_files_checked }}
+        run: |
+          if [ "$SPELL_CHECKED" != "0" ] || [ "$GUARD_CHECKED" != "1" ]; then
+            echo "::error::cspell did not check the selected files (checked=${SPELL_CHECKED:-missing}, guard=${GUARD_CHECKED:-missing})."
+            exit 1
+          fi
+          echo "::notice::All selected files are excluded by the cspell configuration."
