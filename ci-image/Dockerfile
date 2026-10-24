@@ -27,7 +27,7 @@ ARG BUILDX_VERSION=v0.38.1
 # renovate: datasource=github-releases depName=sigstore/cosign
 ARG COSIGN_VERSION=v3.1.4
 # renovate: datasource=github-releases depName=aquasecurity/trivy
-ARG TRIVY_VERSION=v0.76.0
+ARG TRIVY_VERSION=v0.76.1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git jq make python3 && \
