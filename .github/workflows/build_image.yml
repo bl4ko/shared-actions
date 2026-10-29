@@ -105,9 +105,15 @@ jobs:
             [ "$(git rev-parse --is-shallow-repository)" = false ] || { echo "::error::{n} needs full git history"; exit 1; } ;;
           esac
           n=$(git rev-list --count HEAD -- "$CONTEXT")
+          tags="${TAGS//\{n\}/$n}"
+          harbor_tags="${HARBOR_TAGS//\{n\}/$n}"
+          all="$(printf '%s,%s' "$tags" "$harbor_tags" | tr ',' '\n' | sed '/^$/d' | paste -sd, -)"
+          names="$(echo "$all" | tr ',' '\n' | sed 's/:[^/]*$//' | sort -u | paste -sd, -)"
           {
-            echo "tags=${TAGS//\{n\}/$n}"
-            echo "harbor-tags=${HARBOR_TAGS//\{n\}/$n}"
+            echo "tags=$tags"
+            echo "harbor-tags=$harbor_tags"
+            echo "all=$all"
+            echo "names=$names"
           } >> "$GITHUB_OUTPUT"
 
       - name: Set up QEMU
@@ -229,14 +235,16 @@ jobs:
         with:
           context: ${{ inputs.context }}
           file: ${{ inputs.context }}/${{ inputs.file }}
-          push: ${{ inputs.push }}
-          tags: ${{ steps.tags.outputs.harbor-tags != '' && format('{0},{1}', steps.tags.outputs.tags, steps.tags.outputs.harbor-tags) || steps.tags.outputs.tags }}
+          push: false
+          tags: ${{ !inputs.push && steps.tags.outputs.all || '' }}
+          outputs: ${{ inputs.push && format('type=image,"name={0}",push-by-digest=true,push=true', steps.tags.outputs.names) || '' }}
           platforms: ${{ inputs.push && inputs.platform || '' }}
           cache-from: ${{ inputs.push && format('type=registry,ref={0}', steps.cache.outputs.repo) || format('type=gha,scope={0}', steps.gha-cache.outputs.scope) }}
           cache-to: ${{ inputs.push && format('type=registry,ref={0},mode=max', steps.cache.outputs.repo) || format('type=gha,mode=max,scope={0}', steps.gha-cache.outputs.scope) }}
           sbom: ${{ inputs.push && inputs.harbor-tags != '' }}
 
       - name: Sign and verify Harbor images
+        id: sign
         if: inputs.push && inputs.harbor-tags != '' && steps.guard.outputs.skip != 'true'
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
@@ -256,4 +264,17 @@ jobs:
             cosign verify --key env://COSIGN_PUBLIC_KEY --insecure-ignore-tlog=true "$ref" >/dev/null
             docker buildx imagetools inspect "$ref" --format '{{ json .SBOM }}' |
               jq -e '.. | objects | .spdxVersion? // empty | startswith("SPDX-")' >/dev/null
+          done
+
+      - name: Tag images
+        if: inputs.push && steps.guard.outputs.skip != 'true' && (inputs.harbor-tags == '' || steps.sign.outcome == 'success')
+        env:
+          TAGS: ${{ steps.tags.outputs.all }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          test -n "$DIGEST"
+          for t in $(echo "$TAGS" | tr ',' ' '); do
+            docker buildx imagetools create --tag "$t" "${t%:*}@${DIGEST}"
+            got="$(docker buildx imagetools inspect "$t" --format '{{ json .Manifest }}' | jq -r .digest)"
+            [ "$got" = "$DIGEST" ] || { echo "::error::$t points to $got, not $DIGEST"; exit 1; }
           done
