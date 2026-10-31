@@ -7,7 +7,7 @@ ARG CRANE_VERSION=v0.22.1
 # renovate: datasource=github-releases depName=google/osv-scanner
 ARG OSV_SCANNER_VERSION=v2.7.0
 # renovate: datasource=github-releases depName=kubernetes/kubernetes
-ARG KUBECTL_VERSION=v1.37.1
+ARG KUBECTL_VERSION=v1.37.2
 # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize extractVersion=kustomize/(?<version>.+)
 ARG KUSTOMIZE_VERSION=v5.8.3
 # renovate: datasource=github-releases depName=argoproj/argo-cd
