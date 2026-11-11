@@ -75,16 +75,17 @@ jobs:
         run: |
           set -eu
           name="cspell-guard-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          printf 'spelling check guard\n' > "$name.txt"
-          printf '{"ignorePaths":[]}\n' > "$name.json"
+          mkdir "$name"
+          printf 'spelling check guard\n' > "$name/guard.txt"
+          printf '{"ignorePaths":[]}\n' > "$name/cspell.json"
           echo "name=$name" >> "$GITHUB_OUTPUT"
       - name: Coverage guard
         id: guard
         if: steps.guard-input.outcome == 'success'
         uses: streetsidesoftware/cspell-action@ce1816e4ce36532956ac6e983737392774b6e169 # v9
         with:
-          files: ${{ steps.guard-input.outputs.name }}.txt
-          config: ${{ steps.guard-input.outputs.name }}.json
+          files: ${{ steps.guard-input.outputs.name }}/guard.txt
+          config: ${{ steps.guard-input.outputs.name }}/cspell.json
           incremental_files_only: false
           inline: none
           strict: false

@@ -1,4 +1,5 @@
 ACMR
+ACMRT
 SARIF
 buildx
 chainguard
@@ -20,3 +21,4 @@ buildkit
 slocar
 startswith
 tlog
+urandom
