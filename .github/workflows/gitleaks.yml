@@ -23,4 +23,4 @@ jobs:
         with:
           fetch-depth: 0
       - name: Run Gitleaks
-        run: gitleaks detect --source . --verbose
+        run: gitleaks detect --source . --verbose --log-opts=HEAD
