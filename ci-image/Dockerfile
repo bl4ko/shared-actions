@@ -17,7 +17,7 @@ ARG ARGOCD_DIFF_VERSION=v0.2.17
 # renovate: datasource=github-releases depName=cli/cli
 ARG GH_CLI_VERSION=2.103.3
 # renovate: datasource=github-releases depName=mikefarah/yq
-ARG YQ_VERSION=v4.54.1
+ARG YQ_VERSION=v4.54.3
 # renovate: datasource=github-releases depName=gitleaks/gitleaks
 ARG GITLEAKS_VERSION=v8.30.1
 # renovate: datasource=github-tags depName=docker/cli extractVersion=^v(?<version>.+)$
