@@ -79,9 +79,10 @@ jobs:
               sums[name.lstrip("*")] = digest
           if sums.get(zipname) != hashlib.sha256((work / zipname).read_bytes()).hexdigest():
               sys.exit(f"::error::{zipname} does not match SHA256SUMS")
-          gh("attestation", "verify", str(work / zipname), "-R", KIT,
-             "--signer-workflow", f"{KIT}/.github/workflows/release.yml",
-             "--source-ref", f"refs/tags/{tag}", "--deny-self-hosted-runners")
+          attestation = json.loads(gh("attestation", "verify", str(work / zipname), "-R", KIT,
+                                      "--signer-workflow", f"{KIT}/.github/workflows/release.yml",
+                                      "--source-ref", f"refs/tags/{tag}", "--deny-self-hosted-runners", "--format", "json"))
+          commit = attestation[0]["verificationResult"]["signature"]["certificate"]["sourceRepositoryDigest"]
 
           release = {}
           prefix = f"clanker-ui-{version}/"
@@ -109,10 +110,20 @@ jobs:
                           if dep not in names:
                               names.add(dep)
                               todo.append(dep)
-              for name in sorted(names):
+              files = {name: release[name] for name in names}
+              sumsfile = os.path.join(d, "SHA256SUMS")
+              if os.path.exists(sumsfile):
+                  listed = [line.split(maxsplit=1)[1].lstrip("*") for line in Path(sumsfile).read_text().splitlines() if line.strip()]
+                  if set(listed) - names:
+                      sys.exit(f"::error::{sumsfile} lists files that are not kit files: {sorted(set(listed) - names)}")
+                  listed += sorted(n for n in names if n not in listed and n.startswith("clanker-ui"))
+                  files["SHA256SUMS"] = "".join(f"{hashlib.sha256(files[n]).hexdigest()}  {n}\n" for n in listed).encode()
+              if os.path.exists(os.path.join(d, "COMMIT")):
+                  files["COMMIT"] = f"{commit}\n".encode()
+              for name, data in sorted(files.items()):
                   path = os.path.join(d, name)
-                  if not os.path.exists(path) or Path(path).read_bytes() != release[name]:
-                      changes[path] = release[name]
+                  if not os.path.exists(path) or Path(path).read_bytes() != data:
+                      changes[path] = data
 
           if not changes:
               print(f"The kit files are the {tag} release files")

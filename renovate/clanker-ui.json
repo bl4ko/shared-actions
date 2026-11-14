@@ -1,6 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "clanker-ui kit releases: one PR per app; the clanker-ui-update workflow replaces the file set; never auto-merge.",
+  "description": "clanker-ui kit releases: one PR per app; the clanker-ui-update workflow replaces the file set; never auto-merge. ignorePaths: config:recommended without vendor/.",
+  "ignorePaths": ["**/node_modules/**", "**/bower_components/**", "**/examples/**", "**/__tests__/**", "**/test/**", "**/tests/**", "**/__fixtures__/**"],
   "gitIgnoredAuthors": ["41898282+github-actions[bot]@users.noreply.github.com"],
   "customManagers": [
     {
