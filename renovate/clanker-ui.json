@@ -1,0 +1,32 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": "clanker-ui kit releases: one PR per app; the clanker-ui-update workflow replaces the file set; never auto-merge.",
+  "gitIgnoredAuthors": ["41898282+github-actions[bot]@users.noreply.github.com"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "clanker-ui kit file header",
+      "managerFilePatterns": ["/(^|/)clanker-ui[^/]*\\.(css|js)$/"],
+      "matchStrings": ["^/\\*! clanker-ui v(?<currentValue>\\d+\\.\\d+\\.\\d+\\S*) \\|"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "bl4ko/clanker-ui",
+      "extractVersionTemplate": "^v(?<version>.+)$",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Never auto-merge; pr-comment holds when a later app rule sets automerge.",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["bl4ko/clanker-ui"],
+      "groupName": "clanker-ui",
+      "automerge": false,
+      "automergeType": "pr-comment",
+      "automergeComment": "clanker-ui: the checks are green. Renovate does not merge kit updates: run the app UI test, look at the app, then merge by hand.",
+      "prBodyTemplate": "{{{header}}}{{{table}}}{{{warnings}}}{{{notes}}}{{{changelogs}}}{{{controls}}}{{{footer}}}",
+      "prBodyNotes": [
+        "The `clanker-ui` workflow replaces the whole kit file set with the files of this release (SHA256SUMS and attestation checked) and commits them to this branch. Merge only after that commit. Kit updates never auto-merge: run the app UI test and look at the app first."
+      ]
+    }
+  ]
+}

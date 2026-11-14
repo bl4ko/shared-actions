@@ -1,0 +1,153 @@
+name: clanker-ui update
+permissions:
+  contents: read
+on:
+  workflow_call:
+    inputs:
+      runs-on:
+        required: false
+        type: string
+        default: "ubuntu-latest"
+      container-image:
+        required: false
+        type: string
+        default: "ghcr.io/bl4ko/ci-tools:v1.17.8@sha256:3cd7892d4b94c15d6726cbc27fc6cbf761a786b493ece2fedb7e1d91976d3d9a"
+jobs:
+  update:
+    name: clanker-ui files
+    if: >-
+      github.event_name == 'pull_request' && startsWith(github.head_ref, 'renovate/') &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(fromJSON('["Ren0v8r","bl4ko"]'), github.event.pull_request.user.login)
+    runs-on: ${{ inputs.runs-on }}
+    container:
+      image: ${{ inputs.container-image }}
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Replace the kit files with the checked release files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          WORKFLOW: ${{ github.workflow }}
+        run: |
+          git config --global --add safe.directory "$PWD"
+          python3 -I -u - <<'EOF'
+          import base64, hashlib, json, os, re, subprocess, sys, time, zipfile
+          from pathlib import Path
+
+          KIT = "bl4ko/clanker-ui"
+          HEADER = re.compile(rb"/\*! clanker-ui v(\d+\.\d+\.\d+[0-9A-Za-z.+-]*) \|")
+          IMPORT = re.compile(r"""["']\./(clanker-ui[0-9a-z.-]*\.js)["']""")
+          repo = os.environ["GITHUB_REPOSITORY"]
+          work = Path(os.environ["RUNNER_TEMP"]) / "clanker-ui"
+          work.mkdir(parents=True, exist_ok=True)
+
+
+          def gh(*args):
+              return subprocess.run(["gh", *args], check=True, text=True, stdout=subprocess.PIPE).stdout
+
+
+          tracked = subprocess.run(["git", "ls-files", "-z", "--", "*clanker-ui*.css", "*clanker-ui*.js"],
+                                   check=True, stdout=subprocess.PIPE).stdout.decode().split("\0")
+          tracked = [f for f in tracked if f]
+          versions = {}
+          for f in tracked:
+              m = HEADER.match(Path(f).read_bytes()[:300])
+              if m:
+                  versions[f] = m.group(1).decode()
+          if not versions:
+              print("No clanker-ui kit file with a version header")
+              sys.exit(0)
+          if len(set(versions.values())) != 1:
+              sys.exit(f"::error::The kit files have more than one version: {sorted(set(versions.values()))}")
+          version = next(iter(versions.values()))
+          tag = f"v{version}"
+          zipname = f"clanker-ui-{version}.zip"
+
+          gh("release", "download", tag, "-R", KIT, "-p", zipname, "-p", "SHA256SUMS", "-D", str(work), "--clobber")
+          sums = {}
+          for line in (work / "SHA256SUMS").read_text().splitlines():
+              digest, name = line.split(maxsplit=1)
+              sums[name.lstrip("*")] = digest
+          if sums.get(zipname) != hashlib.sha256((work / zipname).read_bytes()).hexdigest():
+              sys.exit(f"::error::{zipname} does not match SHA256SUMS")
+          gh("attestation", "verify", str(work / zipname), "-R", KIT,
+             "--signer-workflow", f"{KIT}/.github/workflows/release.yml",
+             "--source-ref", f"refs/tags/{tag}", "--deny-self-hosted-runners")
+
+          release = {}
+          prefix = f"clanker-ui-{version}/"
+          with zipfile.ZipFile(work / zipname) as z:
+              for n in z.namelist():
+                  rel = n[len(prefix):] if n.startswith(prefix) else ""
+                  if rel and not rel.endswith("/") and ("/" not in rel or (rel.startswith("dist/") and rel.count("/") == 1)):
+                      release.setdefault(rel.rsplit("/", 1)[-1], z.read(n))
+          for name, data in release.items():
+              if name in sums and sums[name] != hashlib.sha256(data).hexdigest():
+                  sys.exit(f"::error::{name} in {zipname} does not match SHA256SUMS")
+
+          changes = {}
+          for d in sorted({os.path.dirname(f) for f in versions}):
+              names = {os.path.basename(f) for f in tracked if os.path.dirname(f) == d}
+              if os.path.exists(os.path.join(d, "THIRD_PARTY_NOTICES")):
+                  names |= {n for n in ("LICENSE", "THIRD_PARTY_NOTICES") if os.path.exists(os.path.join(d, n))}
+              todo = list(names)
+              while todo:
+                  name = todo.pop()
+                  if name not in release:
+                      sys.exit(f"::error::{tag} has no {name} ({d or '.'})")
+                  if name.endswith(".js"):
+                      for dep in IMPORT.findall(release[name].decode("utf-8", "replace")):
+                          if dep not in names:
+                              names.add(dep)
+                              todo.append(dep)
+              for name in sorted(names):
+                  path = os.path.join(d, name)
+                  if not os.path.exists(path) or Path(path).read_bytes() != release[name]:
+                      changes[path] = release[name]
+
+          if not changes:
+              print(f"The kit files are the {tag} release files")
+              sys.exit(0)
+          print("\n".join(f"update {p}" for p in sorted(changes)))
+          payload = {
+              "query": "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+              "variables": {"input": {
+                  "branch": {"repositoryNameWithOwner": repo, "branchName": os.environ["BRANCH"]},
+                  "expectedHeadOid": os.environ["HEAD_SHA"],
+                  "message": {"headline": f"chore(deps): clanker-ui {tag} release files",
+                              "body": f"{zipname}: SHA256SUMS and build provenance attestation checked."},
+                  "fileChanges": {"additions": [{"path": p, "contents": base64.b64encode(c).decode()} for p, c in sorted(changes.items())]},
+              }},
+          }
+          (work / "commit.json").write_text(json.dumps(payload))
+          oid = gh("api", "graphql", "--input", str(work / "commit.json"), "--jq", ".data.createCommitOnBranch.commit.oid").strip()
+          print(f"commit {oid}")
+
+
+          def waiting():
+              runs = json.loads(gh("api", f"repos/{repo}/actions/runs?head_sha={oid}&status=action_required&per_page=100"))["workflow_runs"]
+              runs = [r for r in runs if r["event"] == "pull_request" and r["actor"]["login"] == "github-actions[bot]"]
+              return sorted(runs, key=lambda r: r["name"] == os.environ["WORKFLOW"])
+
+
+          for _ in range(30):
+              if waiting():
+                  break
+              time.sleep(10)
+          time.sleep(15)
+          runs = waiting()
+          if not runs:
+              sys.exit(f"::error::No pull_request run waits for approval on {oid}")
+          for r in runs:
+              print(f"approve {r['name']} ({r['id']})")
+              gh("api", "-X", "POST", f"repos/{repo}/actions/runs/{r['id']}/approve")
+          EOF
