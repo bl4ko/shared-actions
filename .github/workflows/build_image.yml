@@ -49,6 +49,11 @@ on:
         required: false
         type: string
         default: ""
+      build-args:
+        description: Newline-separated build arguments (KEY=value)
+        required: false
+        type: string
+        default: ""
     outputs:
       tags:
         description: Tags after {n} substitution
@@ -244,6 +249,7 @@ jobs:
           cache-from: type=registry,ref=${{ steps.cache.outputs.repo }}
           cache-to: ${{ inputs.push && format('type=registry,ref={0},mode=max', steps.cache.outputs.repo) || '' }}
           sbom: ${{ inputs.push && inputs.harbor-tags != '' }}
+          build-args: ${{ inputs.build-args }}
 
       - name: Sign and verify Harbor images
         id: sign
