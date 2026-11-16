@@ -210,7 +210,6 @@ jobs:
 
       - name: Determine cache repo
         id: cache
-        if: inputs.push
         run: |
           CACHE_REPO="${{ inputs.cache-repo }}"
           if [ -z "$CACHE_REPO" ]; then
@@ -220,13 +219,14 @@ jobs:
           fi
           echo "repo=$CACHE_REPO" >> "$GITHUB_OUTPUT"
 
-      - name: Determine GHA cache scope
-        id: gha-cache
-        if: "!inputs.push"
-        run: |
-          FIRST_TAG=$(echo "${{ steps.tags.outputs.tags }}" | tr ',' '\n' | head -1)
-          SCOPE=$(echo "$FIRST_TAG" | cut -d: -f1 | tr '/' '-')
-          echo "scope=$SCOPE" >> "$GITHUB_OUTPUT"
+      - name: Login to Harbor (cache read)
+        if: "!inputs.push && startsWith(steps.cache.outputs.repo, 'harbor.xqx.uk/')"
+        continue-on-error: true
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: harbor.xqx.uk
+          username: ${{ secrets.HARBOR_ROBOT_USER }}
+          password: ${{ secrets.HARBOR_ROBOT_TOKEN }}
 
       - name: Build and Push
         id: build
@@ -241,8 +241,8 @@ jobs:
           tags: ${{ !inputs.push && steps.tags.outputs.all || '' }}
           outputs: ${{ inputs.push && format('type=image,"name={0}",push-by-digest=true,push=true', steps.tags.outputs.names) || '' }}
           platforms: ${{ inputs.push && inputs.platform || '' }}
-          cache-from: ${{ inputs.push && format('type=registry,ref={0}', steps.cache.outputs.repo) || format('type=gha,scope={0}', steps.gha-cache.outputs.scope) }}
-          cache-to: ${{ inputs.push && format('type=registry,ref={0},mode=max', steps.cache.outputs.repo) || format('type=gha,mode=max,scope={0}', steps.gha-cache.outputs.scope) }}
+          cache-from: type=registry,ref=${{ steps.cache.outputs.repo }}
+          cache-to: ${{ inputs.push && format('type=registry,ref={0},mode=max', steps.cache.outputs.repo) || '' }}
           sbom: ${{ inputs.push && inputs.harbor-tags != '' }}
 
       - name: Sign and verify Harbor images
