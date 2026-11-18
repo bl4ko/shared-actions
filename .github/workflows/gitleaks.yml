@@ -11,7 +11,7 @@ on:
       container-image:
         required: false
         type: string
-        default: "ghcr.io/bl4ko/ci-tools:v1.19.3@sha256:f355c1fc261cb212941b5497b27175ae2ee23f960ffc87e6ed4f342fcf155ec9"
+        default: "ghcr.io/bl4ko/ci-tools:v1.19.4@sha256:66f1bc03a7c780d9ae1fc821cba56d0c22347a718ad1d96bb74670c4d1de2e3d"
 jobs:
   scan:
     name: gitleaks
