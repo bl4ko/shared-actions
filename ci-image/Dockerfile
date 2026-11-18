@@ -1,3 +1,14 @@
+FROM --platform=$BUILDPLATFORM golang:1.27.3-bookworm@sha256:972b4110ba0f47539a975c31e52c64765e1ff19f2d74469ae4a595c6676e80a5 AS gitleaks
+# renovate: datasource=github-releases depName=gitleaks/gitleaks
+ARG GITLEAKS_VERSION=v8.30.1
+ARG TARGETOS TARGETARCH
+RUN git clone --depth 1 --branch "${GITLEAKS_VERSION}" https://github.com/gitleaks/gitleaks.git /src
+WORKDIR /src
+RUN go get github.com/klauspost/compress@v1.20.2 golang.org/x/crypto@v0.58.0 golang.org/x/text@v0.43.0 github.com/andybalholm/brotli@v1.2.8 && \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
+      -ldflags "-s -w -X github.com/zricethezav/gitleaks/v8/version.Version=${GITLEAKS_VERSION}" \
+      -o /out/gitleaks .
+
 FROM ubuntu:26.04@sha256:065aa8626841f16057b78b027b464cd59c4fac36c204c72dcbf48d66f5fa8a96
 
 ARG TARGETARCH
@@ -11,15 +22,13 @@ ARG KUBECTL_VERSION=v1.37.2
 # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize extractVersion=kustomize/(?<version>.+)
 ARG KUSTOMIZE_VERSION=v5.8.3
 # renovate: datasource=github-releases depName=argoproj/argo-cd
-ARG ARGOCD_VERSION=v3.5.6
+ARG ARGOCD_VERSION=v3.6.1
 # renovate: datasource=github-releases depName=dag-andersen/argocd-diff-preview
 ARG ARGOCD_DIFF_VERSION=v0.2.17
 # renovate: datasource=github-releases depName=cli/cli
 ARG GH_CLI_VERSION=2.104.0
 # renovate: datasource=github-releases depName=mikefarah/yq
 ARG YQ_VERSION=v4.54.3
-# renovate: datasource=github-releases depName=gitleaks/gitleaks
-ARG GITLEAKS_VERSION=v8.30.1
 # renovate: datasource=github-tags depName=docker/cli extractVersion=^v(?<version>.+)$
 ARG DOCKER_VERSION=29.10.0
 # renovate: datasource=github-releases depName=docker/buildx
@@ -27,7 +36,7 @@ ARG BUILDX_VERSION=v0.39.0
 # renovate: datasource=github-releases depName=sigstore/cosign
 ARG COSIGN_VERSION=v3.1.4
 # renovate: datasource=github-releases depName=aquasecurity/trivy
-ARG TRIVY_VERSION=v0.76.1
+ARG TRIVY_VERSION=v0.76.2
 
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
       ca-certificates curl git jq make python3 && \
@@ -72,11 +81,7 @@ RUN curl -fsSL -o /usr/local/bin/yq \
       "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${TARGETARCH}" && \
     chmod +x /usr/local/bin/yq
 
-# gitleaks (release uses x64 / arm64)
-RUN GITLEAKS_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x64" || echo "$TARGETARCH") && \
-    GITLEAKS_STRIPPED=$(echo "$GITLEAKS_VERSION" | sed 's/^v//') && \
-    curl -fsSL "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_STRIPPED}_linux_${GITLEAKS_ARCH}.tar.gz" \
-      | tar -xz -C /usr/local/bin gitleaks && chmod +x /usr/local/bin/gitleaks
+COPY --from=gitleaks /out/gitleaks /usr/local/bin/gitleaks
 
 # docker CLI (client only) + buildx plugin — remote-buildkit image builds in CI
 RUN DOCKER_ARCH=$([ "$TARGETARCH" = "amd64" ] && echo "x86_64" || echo "aarch64") && \
