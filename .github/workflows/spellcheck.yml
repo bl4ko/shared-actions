@@ -11,7 +11,7 @@ on:
       container-image:
         required: false
         type: string
-        default: "ghcr.io/bl4ko/ci-tools:latest@sha256:66f1bc03a7c780d9ae1fc821cba56d0c22347a718ad1d96bb74670c4d1de2e3d"
+        default: "ghcr.io/bl4ko/ci-tools:latest@sha256:62b16b07c926ab65d7562fa56043762f641f5a0d4a42918d517c1bfcee2393f9"
 jobs:
   spellcheck:
     runs-on: ${{ inputs.runs-on }}
