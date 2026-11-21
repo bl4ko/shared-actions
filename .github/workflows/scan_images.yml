@@ -104,6 +104,8 @@ jobs:
           for img in $HEAD_IMAGES; do
             if echo "$BASE_IMAGES" | grep -qxF "$img"; then
               echo "Skipping $img (exact reference exists on base branch)"
+            elif [[ "$img" == harbor.xqx.uk/e2e/* || "$img" == harbor.xqx.uk/machines/* ]]; then
+              echo "Skipping $img (VM disk image; Harbor scans its packages artifact)"
             else
               IMAGES+="$img"$'\n'
             fi
