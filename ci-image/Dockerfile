@@ -32,7 +32,7 @@ ARG YQ_VERSION=v4.54.3
 # renovate: datasource=github-tags depName=docker/cli extractVersion=^v(?<version>.+)$
 ARG DOCKER_VERSION=29.10.0
 # renovate: datasource=github-releases depName=docker/buildx
-ARG BUILDX_VERSION=v0.39.0
+ARG BUILDX_VERSION=v0.39.1
 # renovate: datasource=github-releases depName=sigstore/cosign
 ARG COSIGN_VERSION=v3.1.4
 # renovate: datasource=github-releases depName=aquasecurity/trivy
