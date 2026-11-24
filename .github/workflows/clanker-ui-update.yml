@@ -11,7 +11,7 @@ on:
       container-image:
         required: false
         type: string
-        default: "ghcr.io/bl4ko/ci-tools:v1.19.5@sha256:343f344a275aa86fff12895eb8f6db491dc09005e3991f9bf2ae7ba99e90fcfb"
+        default: "ghcr.io/bl4ko/ci-tools:v1.19.6@sha256:18d538215f4d65a789d89d5e428b0fc788c0982056a350780632b4f6e24cecf1"
 jobs:
   update:
     name: clanker-ui files
