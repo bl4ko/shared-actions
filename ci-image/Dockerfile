@@ -41,6 +41,8 @@ ARG TRIVY_VERSION=v0.76.2
 RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
       ca-certificates curl git jq make python3 && \
     dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge 2.7.4-1ubuntu0.3 && \
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libkrb5-3)" ge 1.22.1-2ubuntu4.3 && \
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libgssapi-krb5-2)" ge 1.22.1-2ubuntu4.3 && \
     rm -rf /var/lib/apt/lists/*
 
 # crane (release uses x86_64 / arm64)
