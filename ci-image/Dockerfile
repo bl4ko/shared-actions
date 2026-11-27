@@ -34,7 +34,7 @@ ARG DOCKER_VERSION=29.10.1
 # renovate: datasource=github-releases depName=docker/buildx
 ARG BUILDX_VERSION=v0.39.1
 # renovate: datasource=github-releases depName=sigstore/cosign
-ARG COSIGN_VERSION=v3.1.4
+ARG COSIGN_VERSION=v3.1.5
 # renovate: datasource=github-releases depName=aquasecurity/trivy
 ARG TRIVY_VERSION=v0.76.2
 
