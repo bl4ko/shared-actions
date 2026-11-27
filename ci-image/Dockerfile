@@ -30,7 +30,7 @@ ARG GH_CLI_VERSION=2.105.0
 # renovate: datasource=github-releases depName=mikefarah/yq
 ARG YQ_VERSION=v4.54.3
 # renovate: datasource=github-tags depName=docker/cli extractVersion=^v(?<version>.+)$
-ARG DOCKER_VERSION=29.10.0
+ARG DOCKER_VERSION=29.10.1
 # renovate: datasource=github-releases depName=docker/buildx
 ARG BUILDX_VERSION=v0.39.1
 # renovate: datasource=github-releases depName=sigstore/cosign
